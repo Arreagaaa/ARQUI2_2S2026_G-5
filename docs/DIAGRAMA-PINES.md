@@ -1,6 +1,10 @@
 # Diagrama de Pines - PORTUS Fase 1
 
-## Arduino Mega 2560 - Mapa de Conexiones
+## Diagrama Visual
+
+![Diagrama de conexiones](media/diagrama-pines.png)
+
+## Referencia de Conexiones
 
 ### Bus SPI (RFID MFRC522)
 
