@@ -181,6 +181,22 @@ static const int UMBRAL_LDR_OSCURO[YARD_POS_COUNT][YARD_MAX_NIVELES] = {
 #define IZAJE_PASOS_SEGURO         300   // altura segura para trasladar con carga
 #define STEP_PULSE_HALF_PERIOD_US  2500  // 28BYJ-48: mas lento que NEMA17+A4988
 
+// CORREGIDO (pedido del usuario): el descenso hasta el FC (pin 38) usaba
+// un limite de IZAJE_PASOS_SEGURO*3 = 900 pasos como respaldo de
+// seguridad. Ese numero resulto ser MENOR que el recorrido fisico real
+// hasta el contenedor/la pila en la maqueta -- el motor se quedaba sin
+// pasos asignados ANTES de que el FC llegara a activarse, y eso se leia
+// como error ("se agoto el recorrido sin contacto") aunque el FC nunca
+// tuvo oportunidad real de dispararse.
+// Ahora el respaldo de seguridad para el descenso YA NO es una cantidad
+// de pasos (dificil de calibrar bien) sino un TIMEOUT por tiempo: se le
+// da al stepper una cantidad de pasos generosa (de sobra para cualquier
+// profundidad real de la maqueta) y, en paralelo, si pasan mas de
+// IZAJE_TIMEOUT_MS sin que el FC se active, se declara error igual (por
+// si el FC esta desconectado/dañado y nunca fuera a activarse).
+#define IZAJE_PASOS_MAX_DESCENSO   20000UL
+#define IZAJE_TIMEOUT_MS           8000UL
+
 // ---------------------------------------------------------
 // Cantidad de posiciones "de trabajo" de la grua sobre el riel
 // (posicion 0 = transferencia, 1..YARD_POS_COUNT = patio)
