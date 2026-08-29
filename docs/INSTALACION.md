@@ -58,6 +58,14 @@ Consultar el archivo `DIAGRAMA-PINES.md` en esta misma carpeta para el mapeo com
 
 7. **Paro de emergencia**: Boton momentaneo en pin 18 (INT5). Configurado con `INPUT_PULLUP` y deteccion por flanco descendente (FALLING). Cada pulsacion alterna el estado: detiene o reanuda.
 
+## Vista del Montaje y del Cableado
+
+![Maqueta física en montaje](media/image/maqueta1.jpeg)
+
+![Cableado general del prototipo](media/image/circuito2.jpeg)
+
+
+
 ## Pasos de Montaje
 
 ### Paso 1: Montar la estructura fisica

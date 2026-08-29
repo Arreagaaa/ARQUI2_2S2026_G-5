@@ -2,7 +2,11 @@
 
 ## Diagrama Visual
 
-![Diagrama de conexiones](media/diagrama-pines.png)
+![Diagrama de conexiones](media/image/diagrama_pines.jpg)
+
+![Cableado real del Arduino Mega](media/image/circuitos.jpeg)
+
+> La imagen superior muestra el esquema general del cableado; la segunda muestra el montaje real del Arduino Mega y la distribución de los componentes.
 
 ## Referencia de Conexiones
 
