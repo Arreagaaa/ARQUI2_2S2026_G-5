@@ -30,18 +30,26 @@
      conocido sobre la plataforma y despejando: `FACTOR_CAL = (lectura_cruda - OFFSET_CAL) / peso_kg_conocido`.
 
 3. **Pasos por posicion de la grua** — `PASOS_POR_POSICION_DEFECTO` en
-   `Config.h`. Depende de tu tornillo/polea y del microstepping del
-   driver. Haz una prueba: mueve la grua una posicion y cuenta cuantos
-   pasos reales toma llegar de una marca optica a la siguiente.
+   `Config.h`. En movimiento normal ya NO se usa para decidir cuando
+   parar: el sensor A0 (marca optica) detiene el horizontal en vivo
+   apenas ve la marca esperada (ver `Crane.cpp`, `crane_timerTick`).
+   `PASOS_POR_POSICION_DEFECTO` solo queda como presupuesto de pasos de
+   respaldo, por si la marca fallara. Igual conviene ajustarlo cerca del
+   valor real: mueve la grua una posicion y cuenta cuantos pasos toma
+   llegar de una marca optica a la siguiente.
 
 4. **Polaridad de los sensores IR y de ocupacion** — el codigo asume
    HIGH = "detecta vehiculo/contenedor". Si tus sensores son activos en
    bajo, invierte la condicion en `Stations.cpp` y `Yard.cpp` (buscar los
    `digitalRead(...)  == HIGH` / `== LOW`).
 
-5. **Umbral de la marca optica** — `analogRead(PIN_MARCA_OPTICA) > 512`
-   dentro de `Crane.cpp`. Ajustar segun el sensor reflectivo real (podria
-   ser al reves: marca = valor BAJO segun el sensor que usen).
+5. **Sensores de la grua (A0 y FC)** — `PIN_MARCA_OPTICA` (A0) y
+   `PIN_FC_CONTACTO` en `Crane.cpp` son IR digitales (`digitalRead`, no
+   `analogRead`), logica invertida (LOW = activado). A0 es exclusivo del
+   eje horizontal (marcas del riel) y FC es exclusivo del eje de izaje
+   (contacto con el contenedor/pila, dispara el electroiman). Si algun
+   sensor real es activo en alto, invierte la comparacion correspondiente
+   en `Crane.cpp`.
 
 ## Pines usados (resumen — el detalle completo esta en Config.h)
 
@@ -49,9 +57,10 @@
 |-----------------------|--------------------------------------|
 | RFID RC522 (SPI)      | SS=53, RST=49, SCK=52, MOSI=51, MISO=50 |
 | HX711 celda A / B     | DOUT=22/23, SCK=24 (compartido)      |
-| Motor traslacion      | STEP=30, DIR=31, EN=32               |
-| Motor izaje           | STEP=33, DIR=34, EN=35               |
-| Fin de carrera        | IZQ=36, DER=37, CONTACTO=38          |
+| Motor traslacion (28BYJ-48+ULN2003) | IN1-IN4 = 30,31,32,33   |
+| Motor izaje (28BYJ-48+ULN2003)      | IN1-IN4 = 34,35,36,37   |
+| Marca optica (A0, horizontal)       | A0                      |
+| Fin de carrera CONTACTO (izaje)     | 38                      |
 | Electroiman           | 39                                    |
 | Servo talanquera      | 5                                     |
 | Servo puerta salida   | 6                                     |
@@ -67,15 +76,15 @@
 
 ## Timers usados (para que el equipo lo tenga presente al agregar cosas)
 
-- **Timer1**: muestreo de las celdas HX711 (cada 500 us, ajustable en
-  `HX711_SAMPLE_PERIOD_US`).
-- **Timer3**: generacion de pulsos de los motores paso a paso de la grua.
-- **Servo library**: usa internamente Timer5 en el Mega, no choca con lo
-  anterior.
-- **INT2 (pin 21)**: interrupcion externa dedicada al paro de emergencia.
+- **Servo library**: ocupa internamente Timer1/3/4/5 completos en el Mega.
+- **Timer2** (8 bits, el unico que queda libre): tick base compartido,
+  inicializado por `Weighing.cpp` (`weighing_init()`). En cada tick llama
+  tanto al muestreo de los HX711 como a `crane_timerTick()`, que avanza
+  los pasos de los motores de la grua (traslacion o izaje). Ver el
+  encabezado de `Crane.cpp` para el detalle.
+- **INT5 (pin 18)**: interrupcion externa dedicada al paro de emergencia.
 
-Si agregan mas timers, eviten Timer0 (lo usa `millis()`/`delay()`) y
-Timer2 (lo usa `tone()`, si llegan a usarlo).
+Si agregan mas timers, eviten Timer0 (lo usa `millis()`/`delay()`).
 
 ## Que SI cubre este codigo (alineado al alcance obligatorio del documento)
 
@@ -87,8 +96,11 @@ Timer2 (lo usa `tone()`, si llegan a usarlo).
   reloj compartido.
 - Aguja desviadora controlada por el resultado del pesaje.
 - Grua de 2 GDL con referenciado por marcas opticas (no solo conteo de
-  pasos), ciclo completo de deposito/retiro/remocion, cola de trabajos
-  FIFO documentada.
+  pasos): A0 detiene el horizontal en vivo al llegar a la marca
+  esperada, FC detiene el descenso y dispara el electroiman al hacer
+  contacto, y la subida usa como referencia los mismos pasos del
+  descenso. Ciclo completo de deposito/retiro/remocion, cola de
+  trabajos FIFO documentada.
 - Patio con inventario que solo se actualiza tras confirmacion fisica.
 - Concurrencia: turnos independientes por camion, sin que una estacion
   toque el turno de otro vehiculo.

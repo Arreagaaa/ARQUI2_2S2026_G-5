@@ -45,7 +45,7 @@ void setup() {
   yard_init();
   stations_init();
 
-  Serial.println(F("Sistema inicializado. La grua se referenciara automaticamente."));
+  Serial.println(F("Sistema inicializado. La grua espera el pin 25 (IR transferencia) para referenciarse."));
 }
 
 void loop() {
