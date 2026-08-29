@@ -78,7 +78,10 @@ void crane_timerTick() {
 
   if (ejeActivoEsTraslacion) {
     escribirBobinas(PIN_TRANS_IN1, PIN_TRANS_IN2, PIN_TRANS_IN3, PIN_TRANS_IN4, SECUENCIA_PASOS[indiceSecuencia]);
-    bool marcaAhora = (analogRead(PIN_MARCA_OPTICA) > 512); // ajustar umbral segun sensor real
+    // CORREGIDO: A0 es un IR digital normal (confirmado por el usuario),
+    // no un sensor analogico de umbral. Se lee con digitalRead, misma
+    // logica invertida que el resto de los IR del proyecto (LOW=activado).
+    bool marcaAhora = (digitalRead(PIN_MARCA_OPTICA) == LOW);
     if (marcaAhora && !marcaAnterior) marcasDetectadasEnMovimiento++;
     marcaAnterior = marcaAhora;
   } else {
@@ -141,15 +144,10 @@ void crane_init() {
   // (weighing_init()). Asegurate de llamar weighing_init() en el setup(),
   // el orden respecto a crane_init() no importa, pero ambos deben llamarse.
 
-  // AGREGADO: diagnostico del sensor de marca optica. El umbral fijo
-  // (> 512) en crane_timerTick() nunca se calibro contra el sensor real
-  // (ver comentario original ahi mismo). Si este valor en reposo (SIN
-  // estar sobre ninguna marca) ya esta cerca o por encima de 512, la
-  // grua va a "detectar" una marca falsa en el primer paso que de al
-  // referenciarse, y se va a dar por referenciada casi sin moverse.
-  // Ajustar el umbral de crane_timerTick() segun lo que imprima esto.
-  Serial.print(F("[GRUA] Marca optica en reposo (analogRead): "));
-  Serial.println(analogRead(PIN_MARCA_OPTICA));
+  // ELIMINADO: el diagnostico de analogRead(PIN_MARCA_OPTICA) ya no
+  // aplica -- se confirmo que A0 es un IR digital normal, se lee con
+  // digitalRead (LOW=activado), no con un umbral analogico.
+  pinMode(PIN_MARCA_OPTICA, INPUT);
 }
 
 int crane_enqueue(TipoTrabajoGrua tipo, uint8_t idTurno, int8_t origen, int8_t destino, uint8_t idContenedor) {
@@ -218,6 +216,12 @@ static EstadoGrua estado = G_INACTIVA;
 static TrabajoGrua *trabajoActual = nullptr;
 static uint32_t estadoDesdeMs = 0;
 static uint8_t alturaDetectadaPasos = 0;
+// AGREGADO: pasos reales que bajo el cabezal en el ultimo descenso (lo
+// detecta el sensor IR de A0, ya no un valor fijo). Se usa para que la
+// subida posterior recorra exactamente lo mismo, sin sensor, solo
+// contando pasos -- pedido explicito del usuario para simplificar el
+// eje vertical.
+static long pasosUltimoDescenso = 0;
 
 static void irA(EstadoGrua e) {
   estado = e;
@@ -250,6 +254,19 @@ static long pasosEntre(int8_t origenPos, int8_t destinoPos) {
 }
 
 void crane_update() {
+  static uint32_t ultimoPrintMs = 0;
+  static EstadoGrua estadoAnteriorDebug = (EstadoGrua)255;
+  if (millis() - ultimoPrintMs > 500 || estado != estadoAnteriorDebug) {
+    Serial.print(F("[GRUA] estado="));
+    Serial.print((int)estado);
+    Serial.print(F(" movimientoEnCurso="));
+    Serial.print(movimientoEnCurso ? F("SI") : F("NO"));
+    Serial.print(F(" stepsRemaining="));
+    Serial.println(stepsRemaining);
+    ultimoPrintMs = millis();
+    estadoAnteriorDebug = estado;
+  }
+
   switch (estado) {
 
     case G_INACTIVA: {
@@ -270,6 +287,18 @@ void crane_update() {
       // Ya no hay fin de carrera fisico de home: la posicion de transferencia
       // (posicion 0) esta en el extremo del riel, asi que la PRIMERA marca
       // optica detectada moviendose hacia ese extremo ES la marca de home.
+
+      // CAMBIADO: ya no hace falta calibrar umbral analogico (A0 es IR
+      // digital normal). Se deja un print en vivo del estado digital,
+      // util para confirmar visualmente que detecta al pasar por la
+      // marca real.
+      static uint32_t ultimoPrintMarcaMs = 0;
+      if (millis() - ultimoPrintMarcaMs > 200) {
+        ultimoPrintMarcaMs = millis();
+        Serial.print(F("[GRUA] IR marca (A0) en vivo: "));
+        Serial.println(digitalRead(PIN_MARCA_OPTICA) == LOW ? F("LOW (activado)") : F("HIGH (libre)"));
+      }
+
       if (marcasDetectadasEnMovimiento >= 1) {
         irA(G_REFERENCIANDO_CONFIRMAR);
         return;
@@ -317,18 +346,30 @@ void crane_update() {
 
     // ---------- descenso hasta contacto ----------
     case G_DESCENDER_CONTACTO: {
-      if (digitalRead(PIN_FC_CONTACTO) == LOW) {
+      // CAMBIADO (pedido del usuario): antes solo se usaba el FC para
+      // saber cuando parar. Ahora el sensor IR de A0 (PIN_MARCA_OPTICA,
+      // reusado como IR digital normal, no analogico) es el que PARA
+      // el motor vertical; el FC solo se revisa DESPUES para confirmar
+      // contacto real y disparar el electroiman. Se guarda cuantos
+      // pasos bajo de verdad para que la subida use el mismo numero.
+      static bool yaIniciado = false;
+      static long pasosSolicitados = 0;
+
+      if (digitalRead(PIN_MARCA_OPTICA) == LOW) { // IR activado (misma logica invertida que el resto de IR del proyecto)
         detenerMovimientoInmediato();
-        // altura de la pila = pasos recorridos hasta el contacto, en "niveles"
-        alturaDetectadaPasos = (uint8_t)((PASOS_POR_POSICION_DEFECTO - stepsRemaining) / 100); // ajustar escala real
+        pasosUltimoDescenso = pasosSolicitados - stepsRemaining;
+        alturaDetectadaPasos = (uint8_t)(pasosUltimoDescenso / 100); // ajustar escala real
+        yaIniciado = false;
         irA(G_VERIFICAR_ALTURA);
         return;
       }
-      if (!movimientoEnCurso) {
-        iniciarMovimiento(false, false, IZAJE_PASOS_SEGURO * 3); // baja hasta tocar o agotar recorrido
-      }
-      if (movimientoTerminado() && digitalRead(PIN_FC_CONTACTO) != LOW) {
-        // se agoto el recorrido sin contacto: error
+      if (!yaIniciado) {
+        pasosSolicitados = IZAJE_PASOS_SEGURO * 3; // baja hasta que A0 detecte o se agote el recorrido
+        iniciarMovimiento(false, false, pasosSolicitados);
+        yaIniciado = true;
+      } else if (movimientoTerminado()) {
+        // se agoto el recorrido sin que A0 detectara nada: error
+        yaIniciado = false;
         irA(G_ERROR);
       }
       break;
@@ -349,8 +390,17 @@ void crane_update() {
     }
 
     case G_ENERGIZAR_IMAN: {
-      digitalWrite(PIN_ELECTROIMAN, HIGH);
-      irA(G_CONFIRMAR_AGARRE);
+      // CAMBIADO: el motor ya lo detuvo A0 en G_DESCENDER_CONTACTO. Aqui
+      // se espera a que el FC confirme el contacto real antes de
+      // energizar el electroiman (pedido del usuario: "el fc active el
+      // electroiman"). Si el FC nunca confirma, se declara error en vez
+      // de quedarse esperando para siempre.
+      if (digitalRead(PIN_FC_CONTACTO) == LOW) {
+        digitalWrite(PIN_ELECTROIMAN, HIGH);
+        irA(G_CONFIRMAR_AGARRE);
+      } else if (millis() - estadoDesdeMs > 2000) {
+        irA(G_ERROR); // A0 detecto pero el FC nunca confirmo contacto real
+      }
       break;
     }
 
@@ -365,9 +415,12 @@ void crane_update() {
     }
 
     case G_ELEVAR_SEGURO: {
+      // CAMBIADO (pedido del usuario): en vez de un numero fijo de pasos,
+      // sube exactamente lo mismo que bajo en G_DESCENDER_CONTACTO
+      // (pasosUltimoDescenso), contando pasos, sin sensor para la subida.
       static bool yaIniciado = false;
       if (!yaIniciado) {
-        iniciarMovimiento(false, true, IZAJE_PASOS_SEGURO);
+        iniciarMovimiento(false, true, pasosUltimoDescenso);
         yaIniciado = true;
       } else if (movimientoTerminado()) {
         yaIniciado = false;
@@ -390,20 +443,42 @@ void crane_update() {
     }
 
     case G_DESCENDER_DEPOSITO: {
-      if (digitalRead(PIN_FC_CONTACTO) == LOW) {
+      // CAMBIADO (mismo patron que G_DESCENDER_CONTACTO): A0 para el
+      // motor vertical y guarda cuantos pasos bajo; el FC se revisa
+      // despues, en G_LIBERAR_IMAN, para confirmar contacto antes de
+      // soltar el electroiman.
+      static bool yaIniciado = false;
+      static long pasosSolicitados = 0;
+
+      if (digitalRead(PIN_MARCA_OPTICA) == LOW) {
         detenerMovimientoInmediato();
+        pasosUltimoDescenso = pasosSolicitados - stepsRemaining;
+        yaIniciado = false;
         irA(G_LIBERAR_IMAN);
         return;
       }
-      if (!movimientoEnCurso) {
-        iniciarMovimiento(false, false, IZAJE_PASOS_SEGURO * 3);
+      if (!yaIniciado) {
+        pasosSolicitados = IZAJE_PASOS_SEGURO * 3;
+        iniciarMovimiento(false, false, pasosSolicitados);
+        yaIniciado = true;
+      } else if (movimientoTerminado()) {
+        yaIniciado = false;
+        irA(G_ERROR);
       }
       break;
     }
 
     case G_LIBERAR_IMAN: {
-      digitalWrite(PIN_ELECTROIMAN, LOW);
-      irA(G_CONFIRMAR_COLOCACION);
+      // CAMBIADO: espera a que el FC confirme el contacto real antes de
+      // soltar el electroiman (mismo criterio que G_ENERGIZAR_IMAN, pero
+      // al reves: aqui se APAGA en vez de encender). Si el FC nunca
+      // confirma, error en vez de esperar para siempre.
+      if (digitalRead(PIN_FC_CONTACTO) == LOW) {
+        digitalWrite(PIN_ELECTROIMAN, LOW);
+        irA(G_CONFIRMAR_COLOCACION);
+      } else if (millis() - estadoDesdeMs > 2000) {
+        irA(G_ERROR); // A0 detecto pero el FC nunca confirmo contacto real
+      }
       break;
     }
 
@@ -419,9 +494,12 @@ void crane_update() {
     }
 
     case G_RETRAER: {
+      // CAMBIADO: sube exactamente lo mismo que bajo en
+      // G_DESCENDER_DEPOSITO (pasosUltimoDescenso), en vez de un numero
+      // fijo, contando pasos sin sensor para la subida.
       static bool yaIniciado = false;
       if (!yaIniciado) {
-        iniciarMovimiento(false, true, IZAJE_PASOS_SEGURO);
+        iniciarMovimiento(false, true, pasosUltimoDescenso);
         yaIniciado = true;
       } else if (movimientoTerminado()) {
         yaIniciado = false;
@@ -457,7 +535,16 @@ void crane_update() {
     case G_ERROR: {
       if (trabajoActual != nullptr) trabajoActual->estado = TRABAJO_ERROR;
       trabajoActual = nullptr;
-      // requiere rearme externo (Safety) antes de reintentar
+      // CORREGIDO: antes este estado no tenia ninguna salida. El rearme
+      // (Safety -> crane_forceReReference()) apaga "referenciada", pero
+      // como el switch de arriba se queda atascado en este mismo case,
+      // esa bandera nunca se llegaba a revisar -- el REARME no tenia
+      // ningun efecto visible. Ahora, si ya se detecto un rearme
+      // (referenciada==false), se vuelve a G_INACTIVA, que dispara un
+      // nuevo referenciado automaticamente.
+      if (!referenciada) {
+        irA(G_INACTIVA);
+      }
       break;
     }
   }
