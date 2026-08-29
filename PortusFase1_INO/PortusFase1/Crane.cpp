@@ -189,7 +189,7 @@ void crane_init() {
 
   pinMode(PIN_FC_CONTACTO, INPUT_PULLUP);
   pinMode(PIN_ELECTROIMAN, OUTPUT);
-  digitalWrite(PIN_ELECTROIMAN, HIGH); // rele activo-bajo: HIGH = electroiman OFF (apagado al arrancar)
+  digitalWrite(PIN_ELECTROIMAN, LOW); // NC + activo-bajo: LOW = relay con poder = NC abierto = electroiman OFF
 
   for (uint8_t i = 0; i < MAX_TRABAJOS; i++) cola[i].activo = false;
 
@@ -296,10 +296,9 @@ void crane_forceReReference() { referenciada = false; posicionActual = -1; }
 
 void crane_emergencyHalt() {
   detenerMovimientoInmediato();
-  // rele activo-bajo: HIGH = electroiman OFF. En E-stop se suelta la
-  // carga (decision de diseno: priorizar no tener algo colgado sin
-  // control). Ajustar segun analisis de riesgo del equipo.
-  digitalWrite(PIN_ELECTROIMAN, HIGH);
+  // NC + activo-bajo: LOW = relay con poder = NC abierto = electroiman OFF.
+  // En E-stop se suelta la carga (decision de diseno).
+  digitalWrite(PIN_ELECTROIMAN, LOW);
   estado = G_ERROR;
 }
 
@@ -359,14 +358,8 @@ void crane_update() {
       // (posicion 0) esta en el extremo del riel, asi que la PRIMERA marca
       // optica detectada moviendose hacia ese extremo ES la marca de home.
 
-      // CAMBIADO: ya no hace falta calibrar umbral analogico (A0 es IR
-      // digital normal). Se deja un print en vivo del estado digital,
-      // util para confirmar visualmente que detecta al pasar por la
-      // marca real.
-      // CAMBIADO: este print en vivo tambien se apaga por defecto (cada
-      // 200ms era demasiado seguido). Cambia el 0 por un 1 para volver a
-      // activarlo si necesitan confirmar visualmente que A0 detecta la
-      // marca real.
+      static bool yaInicioMovimiento = false;
+
 #define GRUA_DEBUG_PRINT_MARCA 0
 #if GRUA_DEBUG_PRINT_MARCA
       static uint32_t ultimoPrintMarcaMs = 0;
@@ -378,17 +371,15 @@ void crane_update() {
 #endif
 
       if (marcasDetectadasEnMovimiento >= 1) {
+        yaInicioMovimiento = false;
         irA(G_REFERENCIANDO_CONFIRMAR);
         return;
       }
-      if (!movimientoEnCurso) {
-        // limite de pasos de seguridad: si no detecta ninguna marca en todo
-        // el recorrido del riel, algo esta mal (sensor sucio/desalineado).
-        // CAMBIADO: se pasa marcasParada=1 para que el propio tick corte
-        // el motor apenas A0 vea la primera marca, en tiempo real.
+      if (!yaInicioMovimiento) {
         iniciarMovimiento(true, false, PASOS_POR_POSICION_DEFECTO * TOTAL_POSICIONES_RIEL, 1);
+        yaInicioMovimiento = true;
       } else if (movimientoTerminado()) {
-        // se agoto el recorrido de seguridad sin detectar ninguna marca
+        yaInicioMovimiento = false;
         irA(G_ERROR);
       }
       break;
@@ -404,17 +395,16 @@ void crane_update() {
 
     // ---------- traslado hacia el origen del trabajo ----------
     case G_MOVER_A_ORIGEN: {
-      if (posicionActual == trabajoActual->posicionOrigen) { irA(G_DESCENDER_CONTACTO); return; }
-      if (!movimientoEnCurso) {
+      static bool yaInicioMovimiento = false;
+      if (posicionActual == trabajoActual->posicionOrigen) { yaInicioMovimiento = false; irA(G_DESCENDER_CONTACTO); return; }
+      if (!yaInicioMovimiento) {
         bool haciaAdelante = trabajoActual->posicionOrigen > posicionActual;
         long pasos = pasosEntre(posicionActual, trabajoActual->posicionOrigen);
-        // CAMBIADO (pedido del usuario): A0 detiene el horizontal en vivo
-        // apenas se detecta la marca esperada, en vez de esperar a que se
-        // agoten los pasos precalculados (que quedan solo de respaldo).
         uint16_t marcasEsperadas = (uint16_t)abs(trabajoActual->posicionOrigen - posicionActual);
         iniciarMovimiento(true, haciaAdelante, pasos, marcasEsperadas);
+        yaInicioMovimiento = true;
       } else if (movimientoTerminado()) {
-        // valida que se haya detectado exactamente la cantidad de marcas esperada
+        yaInicioMovimiento = false;
         int esperado = abs(trabajoActual->posicionOrigen - posicionActual);
         if (marcasDetectadasEnMovimiento < esperado) {
           perdidaDeReferencia = true;
@@ -453,7 +443,7 @@ void crane_update() {
           pasosUltimoDescenso = pasosSolicitados - stepsRemaining;
         }
         alturaDetectadaPasos = (uint8_t)(pasosUltimoDescenso / 100);
-        digitalWrite(PIN_ELECTROIMAN, LOW); // rele activo-bajo: LOW = electroiman ON (agarre)
+        digitalWrite(PIN_ELECTROIMAN, HIGH); // NC + activo-bajo: HIGH = relay sin poder = NC cerrado = electroiman ON (agarre)
         Serial.println(F("[GRUA] FC detectado -> electroiman ON (agarre)"));
         yaIniciado = false;
         irA(G_VERIFICAR_ALTURA);
@@ -533,15 +523,16 @@ void crane_update() {
     }
 
     case G_TRASLADAR_DESTINO: {
-      if (posicionActual == trabajoActual->posicionDestino) { irA(G_DESCENDER_DEPOSITO); return; }
-      if (!movimientoEnCurso) {
+      static bool yaInicioMovimiento = false;
+      if (posicionActual == trabajoActual->posicionDestino) { yaInicioMovimiento = false; irA(G_DESCENDER_DEPOSITO); return; }
+      if (!yaInicioMovimiento) {
         bool haciaAdelante = trabajoActual->posicionDestino > posicionActual;
         long pasos = pasosEntre(posicionActual, trabajoActual->posicionDestino);
-        // FIX: mismo criterio que G_MOVER_A_ORIGEN, A0 detiene el
-        // horizontal en vivo al llegar a la marca esperada.
         uint16_t marcasEsperadas = (uint16_t)abs(trabajoActual->posicionDestino - posicionActual);
         iniciarMovimiento(true, haciaAdelante, pasos, marcasEsperadas);
+        yaInicioMovimiento = true;
       } else if (movimientoTerminado()) {
+        yaInicioMovimiento = false;
         posicionActual = trabajoActual->posicionDestino;
         irA(G_DESCENDER_DEPOSITO);
       }
@@ -569,7 +560,7 @@ void crane_update() {
         } else {
           pasosUltimoDescenso = pasosSolicitados - stepsRemaining;
         }
-        digitalWrite(PIN_ELECTROIMAN, HIGH); // rele activo-bajo: HIGH = electroiman OFF (suelta)
+        digitalWrite(PIN_ELECTROIMAN, LOW); // NC + activo-bajo: LOW = relay con poder = NC abierto = electroiman OFF (suelta)
         Serial.println(F("[GRUA] FC detectado -> electroiman OFF (suelta)"));
         yaIniciado = false;
         irA(G_CONFIRMAR_COLOCACION);
