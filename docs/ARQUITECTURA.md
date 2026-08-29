@@ -6,6 +6,12 @@ PORTUS es un sistema de control firmware para una maqueta fisica de una terminal
 
 Todo el control se basa en maquinas de estado no bloqueantes. La funcion `loop()` nunca ejecuta `delay()` ni entra en bucles de espera. Cada modulo se actualiza una vez por ciclo de loop, avanzando su maquina de estado segun las condiciones actuales de los sensores y la logica interna.
 
+## Vista General del Sistema
+
+![Montaje general del prototipo](media/image/circuito2.jpeg)
+
+> Fotografía del prototipo completo con los módulos principales conectados: Arduino Mega, sensores, actuadores y maqueta del patio.
+
 ## Flujo Operativo
 
 El ciclo de vida de una operacion (un "turno") sigue estas etapas:
@@ -41,6 +47,8 @@ Camion llega
           [SALIDA]
 ```
 
+![Diagrama de flujo](media/image/diagrama_flujo.png)
+> Diagram de flujo completo , funcionamiento del proyecto
 ### Estaciones y capacidades
 
 | Estacion | Capacidad | Descripcion |
