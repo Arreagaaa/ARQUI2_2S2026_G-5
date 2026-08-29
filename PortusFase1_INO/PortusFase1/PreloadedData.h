@@ -16,9 +16,11 @@
 // ---------------- Camiones ----------------
 static Camion CAMIONES[MAX_CAMIONES] = {
   // id, UID(4 bytes),          placa,      tara(kg), autorizado, registrado
-  {0, {0x39,0xBB,0x16,0xB3}, "P001AAA",  0.135, true,  true},
-  {1, {0xD9,0xD8,0x7B,0xD3}, "P002BBB",  0.135, true,  true},
-  {2, {0x55,0x66,0x77,0x88}, "P003CCC",  0.135, true,  true},
+  // AJUSTADO: taras reales medidas en la maqueta (antes 0.135 los 3, un
+  // placeholder de una version anterior con camiones mucho mas livianos).
+  {0, {0x39,0xBB,0x16,0xB3}, "P001AAA",  0.12,  true,  true},
+  {1, {0xD9,0xD8,0x7B,0xD3}, "P002BBB",  2.24,  true,  true},
+  {2, {0x55,0x66,0x77,0x88}, "P003CCC",  2.34,  true,  true},
   {3, {0,0,0,0}, "", 0, false, false},
   {4, {0,0,0,0}, "", 0, false, false},
   {5, {0,0,0,0}, "", 0, false, false}
@@ -44,11 +46,19 @@ static Contenedor CONTENEDORES[MAX_CONTENEDORES] = {
 // Uno de ellos debe estar pensado para fallar el pesaje (escenario de rechazo),
 // por ejemplo declarando un peso distinto al real fisico del contenedor de prueba.
 static Manifiesto MANIFIESTOS[MAX_MANIFIESTOS] = {
-  {0, 0, 0, OP_DEPOSITO, 0.065, 0.035, MANIF_PENDIENTE, true}, // rango: tara 0.10-0.17, con carga 0.17-0.23
-  {1, 1, 1, OP_DEPOSITO, 0.065, 0.035, MANIF_PENDIENTE, true}, // rango: tara 0.10-0.17, con carga 0.17-0.23
-  {2, 2, 2, OP_RETIRO,   0.065, 0.035, MANIF_PENDIENTE, true}, // rango: tara 0.10-0.17, con carga 0.17-0.23
-  {3, 4, 3, OP_DEPOSITO, 999.0, TOLERANCIA_PESO_KG, MANIF_PENDIENTE, true}, // demo (camion no probado): provoca desvio
-  {4, 3, 4, OP_DEPOSITO, 305.0, TOLERANCIA_PESO_KG, MANIF_PENDIENTE, true}, // demo (camion no probado)
+  // AJUSTADO: toleranciaKg puesta enorme a pedido -- el pesaje ya NO
+  // rechaza a nadie por peso, cualquier lectura entra "dentro de
+  // tolerancia". pesoDeclaradoKg queda de los valores anteriores pero
+  // ya no importa para la validacion (ver Stations.cpp: se compara
+  // fabs(pesoLeido - pesoDeclaradoKg) <= toleranciaKg, y con una
+  // tolerancia de 9999 eso siempre da true). Si en algun momento
+  // quieren que la bascula vuelva a validar de verdad, hay que bajar
+  // estos 9999.0 a un numero real otra vez.
+  {0, 0, 0, OP_DEPOSITO, 2.67,  9999.0, MANIF_PENDIENTE, true},
+  {1, 1, 1, OP_DEPOSITO, 0.47,  9999.0, MANIF_PENDIENTE, true},
+  {2, 2, 2, OP_RETIRO,   0.065, 9999.0, MANIF_PENDIENTE, true},
+  {3, 4, 3, OP_DEPOSITO, 999.0, 9999.0, MANIF_PENDIENTE, true}, // demo (camion no probado): provoca desvio
+  {4, 3, 4, OP_DEPOSITO, 305.0, 9999.0, MANIF_PENDIENTE, true}, // demo (camion no probado)
   {5, 2, 2, OP_NINGUNA,    0.0, 0, MANIF_COMPLETADO, false}, // placeholder, no usar
   {6, 0, 0, OP_NINGUNA,    0.0, 0, MANIF_COMPLETADO, false},
   {7, 0, 0, OP_NINGUNA,    0.0, 0, MANIF_COMPLETADO, false}

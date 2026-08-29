@@ -303,6 +303,22 @@ static Turno* buscarTurnoParaPesaje() {
 static void pesaje_update() {
   weighing_update();
 
+  // NUEVO: si un camion esta retenido esperando en el ramal (ya en
+  // camino a salida) y el sensor IR del ramal (pin 26) se activa, se
+  // le da por bueno el pesaje final automaticamente (como salida ya
+  // acepta cualquier peso, esto solo lo deja avanzar sin tener que
+  // volver a cruzar fisicamente la bascula). No aplica si ya tiene el
+  // pesaje final valido.
+  if (digitalRead(PIN_IR_RAMAL) == LOW) {
+    for (uint8_t i = 0; i < MAX_TURNOS; i++) {
+      if (turnos[i].activo && turnos[i].retenido &&
+          turnos[i].estacionActual == EST_SALIDA && !turnos[i].pesajeFinalValido) {
+        turnos[i].pesajeFinalValido = true;
+        safety_reportarCausa("Liberado por sensor ramal: pesaje final forzado");
+      }
+    }
+  }
+
   switch (estadoPesaje) {
     case PES_LIBRE: {
       if (digitalRead(PIN_IR_PESAJE) == LOW && turnoEnPesaje == nullptr) { // sensor con logica invertida: LOW = presencia
@@ -323,6 +339,15 @@ static void pesaje_update() {
         Serial.println(F(" kg"));
         ultimoPrintMs = millis();
       }
+      // Si se activa el sensor IR del ramal (pin 26) MIENTRAS se esta
+      // pesando, este sensor manda: mueve la aguja al ramal de una vez
+      // (sin esperar el resultado del peso) y marca el turno retenido.
+      if (digitalRead(PIN_IR_RAMAL) == LOW && !turnoEnPesaje->retenido) {
+        safety_reportarCausa("Retenido manual durante el pesaje (sensor ramal)");
+        turnoEnPesaje->retenido = true;
+        digitalWrite(PIN_FLECHA_VERDE, LOW); digitalWrite(PIN_FLECHA_AMBAR, HIGH);
+        servoAguja.write(AGUJA_RAMAL);
+      }
       if (weighing_resultReady()) estadoPesaje = PES_EVALUANDO;
       break;
     }
@@ -341,7 +366,18 @@ static void pesaje_update() {
       Serial.print(m.toleranciaKg, 2);
       Serial.println(F(" kg)"));
 
-      if (esInicial) {
+      if (turnoEnPesaje->retenido) {
+        // el sensor IR del ramal ya decidio por su cuenta: se respeta
+        // esa decision sin importar si el peso hubiera salido bien.
+        // Se marca pesajeFinalValido de una vez: como salida ya acepta
+        // cualquier peso, no hace falta que vuelva a cruzar la bascula.
+        turnoEnPesaje->pesajeInicialKg = lecturaKg;
+        turnoEnPesaje->pesajeInicialValido = true;
+        turnoEnPesaje->pesajeFinalKg = lecturaKg;
+        turnoEnPesaje->pesajeFinalValido = true;
+        turnoEnPesaje->estacionActual = EST_SALIDA;
+        safety_reportarCausa("Desviado por sensor de ramal (pin 26)");
+      } else if (esInicial) {
         if (m.tipo == OP_DEPOSITO) {
           float pesoContenedor = lecturaKg - c.taraKg;
           dentroDeTolerancia = fabs(pesoContenedor - m.pesoDeclaradoKg) <= m.toleranciaKg;
@@ -359,22 +395,15 @@ static void pesaje_update() {
           digitalWrite(PIN_FLECHA_VERDE, LOW); digitalWrite(PIN_FLECHA_AMBAR, HIGH);
           servoAguja.write(AGUJA_RAMAL);
           turnoEnPesaje->retenido = true;
+          turnoEnPesaje->pesajeFinalKg = lecturaKg;
+          turnoEnPesaje->pesajeFinalValido = true; // no necesita pesarse otra vez, salida acepta cualquier peso
           turnoEnPesaje->estacionActual = EST_SALIDA; // ya no se detiene en el ramal: va directo a salida
           safety_reportarCausa("Pesaje fuera de tolerancia, desviado a salida");
         }
-      } else { // pesaje final (antes de salida)
-        if (m.tipo == OP_DEPOSITO) {
-          dentroDeTolerancia = fabs(lecturaKg - c.taraKg) <= m.toleranciaKg; // debe volver a su tara
-        } else {
-          float pesoRecibido = lecturaKg - c.taraKg;
-          dentroDeTolerancia = fabs(pesoRecibido - m.pesoDeclaradoKg) <= m.toleranciaKg;
-        }
+      } else { // pesaje final (antes de salida): AGREGADO, ahora acepta cualquier peso
+        dentroDeTolerancia = true; // ya no se rechaza por peso en la salida
         turnoEnPesaje->pesajeFinalKg = lecturaKg;
         turnoEnPesaje->pesajeFinalValido = dentroDeTolerancia;
-        if (!dentroDeTolerancia) {
-          turnoEnPesaje->retenido = true;
-          safety_reportarCausa("Anomalia de peso en salida");
-        }
       }
 
       weighing_reset();
@@ -439,6 +468,11 @@ static void transferencia_update() {
       // aborta si el vehiculo se mueve durante la transferencia
       if (digitalRead(PIN_IR_TRANSFERENCIA) == HIGH) { // sensor con logica invertida: HIGH = sin presencia
         safety_reportarCausa("Movimiento del camion durante transferencia");
+        // AGREGADO: se marca retenido -- antes esto abortaba la
+        // transferencia pero dejaba pasar al camion como si nada.
+        // Se puede demostrar tapando con la mano este sensor IR
+        // mientras la grua esta trabajando.
+        turnoEnTransf->retenido = true;
         crane_emergencyHalt();
         estadoTransf = TR_FINALIZANDO;
         return;
@@ -448,6 +482,9 @@ static void transferencia_update() {
         estadoTransf = TR_FINALIZANDO;
       } else if (crane_isJobError(ultimoJob)) {
         safety_reportarCausa("Error en operacion de grua");
+        // AGREGADO: mismo criterio, un error real de la grua tambien
+        // deja el turno retenido en vez de dejarlo seguir.
+        turnoEnTransf->retenido = true;
         estadoTransf = TR_FINALIZANDO;
       }
       break;
@@ -465,7 +502,7 @@ static void transferencia_update() {
 // ============================================================
 // SALIDA (capacidad 1)
 // ============================================================
-enum EstadoSalida { SAL_LIBRE, SAL_ESPERANDO_PESAJE_FINAL, SAL_VALIDANDO, SAL_ESPERANDO_TALANQUERA, SAL_AUTORIZADA, SAL_RECHAZADA };
+enum EstadoSalida { SAL_LIBRE, SAL_ESPERANDO_PESAJE_FINAL, SAL_VALIDANDO, SAL_ESPERANDO_LLEGADA, SAL_ESPERANDO_TALANQUERA, SAL_SEMAFORO_VERDE_ESPERANDO, SAL_AUTORIZADA, SAL_RECHAZADA };
 static EstadoSalida estadoSalida = SAL_LIBRE;
 static Turno *turnoEnSalida = nullptr;
 static uint32_t salidaDesdeMs = 0;
@@ -477,6 +514,13 @@ static Turno* buscarTurnoParaSalida() {
 }
 
 static void salida_update() {
+  static EstadoSalida estadoAnterior = SAL_LIBRE;
+  if (estadoSalida != estadoAnterior) {
+    Serial.print(F("[SALIDA] cambio de estado -> "));
+    Serial.println((int)estadoSalida);
+    estadoAnterior = estadoSalida;
+  }
+
   switch (estadoSalida) {
     case SAL_LIBRE: {
       Turno *t = buscarTurnoParaSalida();
@@ -487,7 +531,11 @@ static void salida_update() {
       if (turnoEnSalida->pesajeInicialValido && turnoEnSalida->pesajeFinalValido) {
         estadoSalida = SAL_VALIDANDO;
       } else if (turnoEnSalida->retenido) {
-        lcdMostrar("RETENIDO", "Anomalia de peso");
+        // AJUSTADO: antes decia siempre "Anomalia de peso" en el LCD,
+        // pero ahora un turno tambien puede quedar retenido por un
+        // problema en la transferencia/grua. Se muestra la causa real
+        // registrada por safety_reportarCausa().
+        lcdMostrar("RETENIDO", safety_getUltimaCausa());
         estadoSalida = SAL_RECHAZADA;
         salidaDesdeMs = millis();
       }
@@ -497,16 +545,28 @@ static void salida_update() {
     }
     case SAL_VALIDANDO: {
       bool condiciones = turnoEnSalida->pesajeFinalValido &&
-                          !turnoEnSalida->retenido &&
                           !turnoEnSalida->esperandoGrua;
+      // AJUSTADO: se quito el bloqueo por "retenido" (peso fuera de
+      // tolerancia o desviado por el sensor de ramal). Ahora esos
+      // camiones tambien pueden salir con normalidad.
       if (condiciones) {
         MANIFIESTOS[turnoEnSalida->idManifiesto].estado = MANIF_COMPLETADO;
         lcdMostrar("Turno finalizado", CAMIONES[turnoEnSalida->idCamion].placa);
-        estadoSalida = SAL_ESPERANDO_TALANQUERA;
+        estadoSalida = SAL_ESPERANDO_LLEGADA;
       } else {
         lcdMostrar("RECHAZADO", "Validacion pend.");
         estadoSalida = SAL_RECHAZADA;
         salidaDesdeMs = millis();
+      }
+      break;
+    }
+    case SAL_ESPERANDO_LLEGADA: {
+      // NUEVO: el pesaje final se puede validar mientras el camion
+      // sigue en la bascula, lejos todavia de la puerta compartida.
+      // No se abre nada hasta que el sensor IR de salida (pin 19)
+      // confirme que el camion YA esta fisicamente ahi.
+      if (digitalRead(PIN_IR_SALIDA) == LOW) { // sensor con logica invertida: LOW = presencia
+        estadoSalida = SAL_ESPERANDO_TALANQUERA;
       }
       break;
     }
@@ -515,9 +575,20 @@ static void salida_update() {
       // ahorita, esperamos aqui en vez de pisarle el servo/semaforo
       if (duenoTalanquera == 1) return;
       duenoTalanquera = 2;
+      // AJUSTADO: primero se enciende el semaforo en verde solo; el
+      // servo se activa despues, una vez confirmado el verde.
       semaforo(PIN_SEM_GARITA_R, PIN_SEM_GARITA_A, PIN_SEM_GARITA_V, 'V');
-      servoTalanquera.write(SERVO_ABIERTO);
-      estadoSalida = SAL_AUTORIZADA;
+      salidaDesdeMs = millis();
+      estadoSalida = SAL_SEMAFORO_VERDE_ESPERANDO;
+      break;
+    }
+    case SAL_SEMAFORO_VERDE_ESPERANDO: {
+      // pequena pausa para que el semaforo se vea encendido antes de
+      // que se mueva la talanquera (evita que ambos pasen "a la vez")
+      if (millis() - salidaDesdeMs >= 400) {
+        servoTalanquera.write(SERVO_ABIERTO);
+        estadoSalida = SAL_AUTORIZADA;
+      }
       break;
     }
     case SAL_AUTORIZADA: {
