@@ -29,4 +29,14 @@ bool crane_isReferenced();
 void crane_forceReReference();
 void crane_emergencyHalt();
 
+// AGREGADO: vacia la cola de trabajos y deja la maquina de estados de la
+// grua en G_INACTIVA, para el comando REINICIAR de consola (repetir
+// pruebas sin recargar el sketch). A proposito NO toca el referenciado
+// (posicionActual/referenciada): la grua conserva su "home" fisico y no
+// necesita volver a referenciarse entre pruebas. Solo debe invocarse con
+// la maqueta despejada (sin un trabajo realmente en curso), igual que un
+// paro de emergencia: si se llama a mitad de un movimiento, este se
+// corta de golpe.
+void crane_resetQueue();
+
 #endif

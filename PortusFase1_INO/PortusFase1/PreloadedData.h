@@ -82,6 +82,67 @@ inline int buscarManifiestoPendiente(uint8_t idCamion) {
   return encontrado;
 }
 
+// AGREGADO: reinicia CONTENEDORES[] y MANIFIESTOS[] a sus valores
+// originales de fabrica (los mismos literales de arriba), para poder
+// repetir una demostracion/prueba completa sin recargar el sketch en el
+// Arduino (comando REINICIAR de la consola serial). CAMIONES[] no se
+// modifica en tiempo de ejecucion (autorizadoLocal/registrado son fijos),
+// asi que no hace falta reiniciarlo aqui.
+//
+// IMPORTANTE: esto solo reinicia los DATOS. Tambien hay que reiniciar
+// los turnos (stations_resetTurnos()), la cola de la grua
+// (crane_resetQueue()) y el patio (yard_reset(), que debe llamarse
+// DESPUES de esta funcion). El comando REINICIAR en Console.cpp ya hace
+// las 4 llamadas en el orden correcto.
+// Helper: reset one Contenedor to its factory defaults (field-by-field
+// because AVR-G++ in C++98 mode does not support brace-assignment).
+static void _resetContenedor(Contenedor &c, uint8_t id, const char *cod,
+                              float peso, int8_t pos, uint8_t niv,
+                              EstadoContenedor est, bool ex) {
+  c.id = id;
+  strncpy(c.codigo, cod, sizeof(c.codigo));
+  c.pesoDeclaradoKg = peso;
+  c.posicionPatio = pos;
+  c.nivelPatio = niv;
+  c.estado = est;
+  c.existe = ex;
+}
+
+static void _resetManifiesto(Manifiesto &m, uint8_t id, uint8_t idC,
+                              uint8_t idCont, TipoOperacion t, float peso,
+                              float tol, EstadoManifiesto est, bool ex) {
+  m.id = id;
+  m.idCamion = idC;
+  m.idContenedor = idCont;
+  m.tipo = t;
+  m.pesoDeclaradoKg = peso;
+  m.toleranciaKg = tol;
+  m.estado = est;
+  m.existe = ex;
+}
+
+inline void preloadedData_reset() {
+  _resetContenedor(CONTENEDORES[0],  0, "CT-001", 300.0, -1, 0, CONT_EN_CAMION,  true);
+  _resetContenedor(CONTENEDORES[1],  1, "CT-002", 280.0, -1, 0, CONT_EN_CAMION,  true);
+  _resetContenedor(CONTENEDORES[2],  2, "CT-003", 310.0,  0, 0, CONT_EN_PATIO,   true);
+  _resetContenedor(CONTENEDORES[3],  3, "CT-004", 295.0, -1, 0, CONT_EN_CAMION,  true);
+  _resetContenedor(CONTENEDORES[4],  4, "CT-005", 305.0, -1, 0, CONT_EN_CAMION,  true);
+  _resetContenedor(CONTENEDORES[5],  5, "CT-006",   0.0, -1, 0, CONT_DESCONOCIDO, false);
+  _resetContenedor(CONTENEDORES[6],  6, "CT-007",   0.0, -1, 0, CONT_DESCONOCIDO, false);
+  _resetContenedor(CONTENEDORES[7],  7, "CT-008",   0.0, -1, 0, CONT_DESCONOCIDO, false);
+  _resetContenedor(CONTENEDORES[8],  8, "CT-009",   0.0, -1, 0, CONT_DESCONOCIDO, false);
+  _resetContenedor(CONTENEDORES[9],  9, "CT-010",   0.0, -1, 0, CONT_DESCONOCIDO, false);
+
+  _resetManifiesto(MANIFIESTOS[0], 0, 0, 0, OP_DEPOSITO, 2.67,  9999.0, MANIF_PENDIENTE, true);
+  _resetManifiesto(MANIFIESTOS[1], 1, 1, 1, OP_DEPOSITO, 0.47,  9999.0, MANIF_PENDIENTE, true);
+  _resetManifiesto(MANIFIESTOS[2], 2, 2, 2, OP_RETIRO,   0.065, 9999.0, MANIF_PENDIENTE, true);
+  _resetManifiesto(MANIFIESTOS[3], 3, 4, 3, OP_DEPOSITO, 999.0, 9999.0, MANIF_PENDIENTE, true);
+  _resetManifiesto(MANIFIESTOS[4], 4, 3, 4, OP_DEPOSITO, 305.0, 9999.0, MANIF_PENDIENTE, true);
+  _resetManifiesto(MANIFIESTOS[5], 5, 2, 2, OP_NINGUNA,    0.0, 0,      MANIF_COMPLETADO, false);
+  _resetManifiesto(MANIFIESTOS[6], 6, 0, 0, OP_NINGUNA,    0.0, 0,      MANIF_COMPLETADO, false);
+  _resetManifiesto(MANIFIESTOS[7], 7, 0, 0, OP_NINGUNA,    0.0, 0,      MANIF_COMPLETADO, false);
+}
+
 inline int buscarCamionPorUID(byte *uid, byte uidSize) {
   for (uint8_t i = 0; i < MAX_CAMIONES; i++) {
     if (!CAMIONES[i].registrado) continue;

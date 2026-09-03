@@ -55,6 +55,14 @@
 // Electroiman del cabezal (via modulo de rele)
 // ---------------------------------------------------------
 #define PIN_ELECTROIMAN 39   // IN del modulo de rele
+// AGREGADO (diagnostico en campo): muchos modulos de rele de 1 canal
+// (con optoacoplador) son ACTIVOS EN BAJO -- LOW cierra el rele (energiza),
+// HIGH lo abre (libera) -- al reves de lo que asumia el codigo original
+// (HIGH=agarra, LOW=suelta). Si el electroiman queda pegado justo despues
+// de que el firmware manda la orden de soltar (ver Crane.cpp, funciones
+// electroimanEnergizar()/electroimanLiberar()), cambiar este define a 1
+// y volver a probar, en vez de tocar la logica de estados de nuevo.
+#define RELE_ELECTROIMAN_ACTIVO_BAJO 0
 
 // ---------------------------------------------------------
 // Servomotores

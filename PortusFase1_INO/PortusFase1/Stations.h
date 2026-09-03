@@ -20,6 +20,15 @@ void stations_init();
 // turno de otro vehiculo).
 void stations_update();
 
+// AGREGADO: libera todos los turnos y regresa las 4 maquinas de estado
+// locales (garita/pesaje/transferencia/salida) a su condicion de reposo,
+// sin repetir la inicializacion de hardware (pines/LCD/RFID quedan
+// como estaban). Pensado para el comando REINICIAR de consola, que
+// permite repetir una prueba/demostracion completa sin recargar el
+// sketch. Debe usarse solo con la maqueta despejada (ningun camion bajo
+// una talanquera ni en la zona de transferencia).
+void stations_resetTurnos();
+
 // Utilidades de consulta para la consola serial
 uint8_t stations_contarTurnosActivos();
 void stations_imprimirEstadoTurno(uint8_t indice);

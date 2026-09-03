@@ -49,6 +49,11 @@ void setup() {
 }
 
 void loop() {
+  // AGREGADO: confirma (o descarta como ruido) la pulsacion que haya
+  // visto la ISR del paro de emergencia -- ver comentario en Safety.cpp.
+  // Debe ir lo antes posible en loop(), antes de leer safety_isEstopActive().
+  safety_update();
+
   // Si el paro de emergencia esta activo, se detiene la operacion normal
   // pero la consola sigue viva para poder consultar el estado y rearmar.
   static bool estopActivoAnterior = false;

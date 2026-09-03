@@ -44,6 +44,30 @@ void yard_init() {
   }
 }
 
+// AGREGADO: mismo cuerpo que la parte de yard_init() que reconstruye el
+// patio (sin repetir pinMode(), que ya quedo hecho desde el arranque).
+// Pensado para el comando REINICIAR de consola: hay que llamarla DESPUES
+// de preloadedData_reset(), porque lee CONTENEDORES[] para saber que
+// quedo dentro del patio (igual que hace yard_init() al arrancar).
+void yard_reset() {
+  for (uint8_t i = 0; i < YARD_POS_COUNT; i++) {
+    patio[i].estado = POS_LIBRE;
+    patio[i].nivelesOcupados = 0;
+    for (uint8_t n = 0; n < YARD_MAX_NIVELES; n++) patio[i].idContenedor[n] = 255;
+  }
+  for (uint8_t c = 0; c < MAX_CONTENEDORES; c++) {
+    if (CONTENEDORES[c].existe && CONTENEDORES[c].estado == CONT_EN_PATIO) {
+      int8_t p = CONTENEDORES[c].posicionPatio;
+      uint8_t n = CONTENEDORES[c].nivelPatio;
+      if (p >= 0 && p < YARD_POS_COUNT && n < YARD_MAX_NIVELES) {
+        patio[p].idContenedor[n] = CONTENEDORES[c].id;
+        patio[p].nivelesOcupados = max(patio[p].nivelesOcupados, (uint8_t)(n + 1));
+        patio[p].estado = POS_OCUPADA;
+      }
+    }
+  }
+}
+
 // LED simple: se aprovecha software-blink para representar los 4 estados
 // con un solo pin (libre=apagado, reservada=parpadeo lento, ocupada=fijo,
 // bloqueada=parpadeo rapido).
@@ -98,9 +122,34 @@ bool yard_esAccesible(int8_t posicion) {
   return patio[posicion].nivelesOcupados < YARD_MAX_NIVELES;
 }
 
+// CORREGIDO (bug real de concurrencia/capacidad, reportado por el usuario):
+// esta funcion comparaba contra "estado == POS_LIBRE", es decir, SOLO
+// consideraba disponible una posicion completamente vacia. Eso ignoraba
+// por completo el apilamiento de 2 niveles que exige el documento: en
+// cuanto una posicion recibia su PRIMER contenedor, su estado pasaba a
+// POS_OCUPADA y quedaba descartada para siempre por esta funcion, aunque
+// todavia tuviera un segundo nivel libre (yard_esAccesible() -- ya
+// definida arriba, pero nunca se usaba aqui -- si contempla esto
+// correctamente).
+//
+// Efecto observado en la maqueta: CT-003 ya viene precargado en la
+// posicion 0 desde el arranque (ver PreloadedData.h), asi que la
+// posicion 0 NUNCA aparecia como POS_LIBRE. En cuanto el primer camion
+// depositaba en la posicion 1 (la unica que si arrancaba POS_LIBRE),
+// yard_buscarPosicionLibre() ya no encontraba NINGUNA posicion "libre"
+// en todo el patio (ambas quedaban POS_OCUPADA con 1 nivel, aunque las
+// dos tenian espacio de sobra para un segundo contenedor) y la garita
+// rechazaba a cualquier siguiente camion con deposito por "Sin posicion
+// accesible en patio" -- esto es lo que se percibia como "no soporta
+// concurrencia" / "ya no me deja meter otro camion", porque coincidia
+// en el tiempo con que el primer camion seguia siendo atendido por la
+// grua.
+//
+// Ahora reutiliza yard_esAccesible(), que ya calculaba correctamente
+// la disponibilidad real (no bloqueada + con nivel libre).
 int8_t yard_buscarPosicionLibre() {
   for (uint8_t i = 0; i < YARD_POS_COUNT; i++) {
-    if (patio[i].estado == POS_LIBRE) return i;
+    if (yard_esAccesible(i)) return i;
   }
   return -1;
 }
@@ -110,9 +159,16 @@ uint8_t yard_getNiveles(int8_t posicion) {
   return patio[posicion].nivelesOcupados;
 }
 
+// CORREGIDO: yard_buscarPosicionLibre() ahora puede devolver posiciones
+// que estan POS_OCUPADA (con un nivel ocupado pero con espacio para otro
+// contenedor en el nivel 2). Si yard_reservarPosicion() solo aceptaba
+// POS_LIBRE, la reserva fallaba silenciosamente y la garita rechazaba
+// al camion despues ("Sin posicion accesible en patio") a pesar de que
+// SI habia espacio. Ahora acepta cualquier posicion que yard_esAccesible()
+// devuelve true (no bloqueada + con nivel libre).
 void yard_reservarPosicion(int8_t posicion) {
   if (posicion < 0 || posicion >= YARD_POS_COUNT) return;
-  if (patio[posicion].estado == POS_LIBRE) patio[posicion].estado = POS_RESERVADA;
+  if (yard_esAccesible(posicion)) patio[posicion].estado = POS_RESERVADA;
 }
 
 void yard_ocuparPosicion(int8_t posicion, uint8_t idContenedor) {

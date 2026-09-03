@@ -17,6 +17,14 @@ enum EstadoPosicion { POS_LIBRE, POS_RESERVADA, POS_OCUPADA, POS_BLOQUEADA };
 
 void yard_init();
 
+// AGREGADO: reinicia el inventario del patio a su estado de fabrica
+// (mismo resultado que yard_init(), pero sin repetir pinMode()), para
+// poder repetir pruebas completas desde la consola serial (comando
+// REINICIAR) sin recargar el sketch. Debe llamarse DESPUES de
+// preloadedData_reset(), ya que reconstruye el patio a partir de
+// CONTENEDORES[] (posicionPatio/nivelPatio/estado).
+void yard_reset();
+
 // Debe llamarse una vez por loop(); refresca lectura de sensores de base
 // y actualiza los LED de estado de cada posicion.
 void yard_update();
