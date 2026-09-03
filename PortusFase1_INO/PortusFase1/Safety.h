@@ -13,6 +13,12 @@
 
 void safety_init();
 
+// AGREGADO (diagnostico en campo): debe llamarse en CADA iteracion de
+// loop(), lo antes posible. Confirma (o descarta como ruido) la
+// pulsacion que detecto la ISR -- ver comentario junto a
+// pendienteConfirmarMs en Safety.cpp.
+void safety_update();
+
 // true mientras el sistema esta detenido por E-stop (pulsador presionado
 // o pendiente de rearme explicito)
 bool safety_isEstopActive();

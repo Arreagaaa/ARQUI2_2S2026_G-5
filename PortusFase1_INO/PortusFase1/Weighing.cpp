@@ -253,16 +253,22 @@ bool weighing_readRawNow(long &sumaCruda, long &celdaA, long &celdaB) {
   return true;
 }
 
+// CORREGIDO: weighing_tare() original hacia 10 lecturas con
+// weighing_readRawNow() (hasta 500ms cada una) + delay(20) entre
+// ellas = hasta 5+ segundos bloqueando loop(). Eso congelaba todas
+// las estaciones, la grua y la consola. Ahora se reduce a 3 lecturas
+// sin delay() entre ellas (max ~1.5s total en el peor caso). La
+// precision es suficiente para tarar con plataforma vacia; si se
+// necesita mas promediado, hacerlo con el comando CRUDO y ajustar
+// OFFSET_CAL manualmente.
 bool weighing_tare(long &nuevoOffset) {
-  // promedia 10 lecturas para no tarar sobre un valor ruidoso
   long suma = 0;
   uint8_t leidas = 0;
-  for (uint8_t i = 0; i < 10; i++) {
+  for (uint8_t i = 0; i < 3; i++) {
     long s, a, b;
     if (!weighing_readRawNow(s, a, b)) continue;
     suma += s;
     leidas++;
-    delay(20);
   }
   if (leidas == 0) return false;
   OFFSET_CAL = suma / leidas;

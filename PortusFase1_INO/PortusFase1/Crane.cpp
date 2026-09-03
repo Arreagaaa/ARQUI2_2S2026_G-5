@@ -63,15 +63,23 @@
       (G_REFERENCIANDO_MOVER, la primera vez que no se sabe donde esta
       la grua) y la compuerta de espera (G_ESPERAR_LIBERAR_MARCA).
     - PIN_FC_CONTACTO ahora se revisa DENTRO del tick del motor (cada
-      BASE_TICK_US = 100us), igual que A0, en vez de en loop(). Detiene
-      el descenso al tocar el contenedor/la pila y, en el mismo tick,
-      congela cuantos pasos llevaba dados (stepsRemainingAlContacto)
-      para que pasosUltimoDescenso sea exacto. El electroiman se
-      energiza/suelta en crane_update() apenas se nota la bandera
-      contactoDetectadoFlag (un par de ms de diferencia maximo, no
-      afecta al iman). La subida posterior sigue sin usar ningun
-      sensor: sube exactamente los mismos pasos que bajo
-      (pasosUltimoDescenso).
+      BASE_TICK_US = 100us), igual que A0, en vez de en loop(). Se usa
+      EXCLUSIVAMENTE en G_DESCENDER_CONTACTO (el agarre inicial del
+      contenedor/la pila), porque ahi la altura real varia segun cuantos
+      niveles haya apilados y no hay forma de precalcularla. En el mismo
+      tick del contacto se congela cuantos pasos llevaba dados
+      (stepsRemainingAlContacto) para que pasosUltimoDescenso sea exacto.
+      El electroiman se energiza en crane_update() apenas se nota la
+      bandera contactoDetectadoFlag (un par de ms de diferencia maximo,
+      no afecta al iman).
+      CAMBIADO OTRA VEZ (pedido del usuario): el deposito
+      (G_DESCENDER_DEPOSITO) YA NO usa el FC -- en la maqueta no siempre
+      hay algo fisico armado que lo active al depositar (ej. al devolver
+      el contenedor a la zona de transferencia), y eso agotaba el timeout
+      de seguridad y dejaba el turno "RETENIDO" sin razon real. Ahora baja
+      exactamente pasosUltimoDescenso (lo mismo que subio al agarrar,
+      mismo criterio que G_ELEVAR_SEGURO/G_RETRAER) y el electroiman se
+      suelta apenas termina el recorrido del stepper, sin sensor.
   - Limitacion conocida (documentada, no es un bug): al quitarle a A0 el
     corte en vivo del horizontal, la posicion de la grua (posicionActual)
     pasa a depender 100% del conteo de pasos, igual que ya pasaba con el
@@ -80,6 +88,21 @@
     marca fisica en cada viaje -- solo se corrige volviendo a referenciar
     (crane_forceReReference()). Es el mismo trade-off que el equipo ya
     acepto para el izaje.
+  - CORREGIDO (bug reportado): al bajar pasosUltimoDescenso (usado por
+    G_ELEVAR_SEGURO, G_DESCENDER_DEPOSITO y G_RETRAER) ese valor puede
+    salir en 0 si el FC de contacto se activo casi de inmediato al bajar
+    a agarrar (stepsRemainingAlContacto == pasosSolicitados). Antes,
+    iniciarMovimiento(..., pasos=0) dejaba movimientoEnCurso=true y
+    crane_timerTick() jamas lo bajaba a false, porque su propia guarda de
+    entrada ("stepsRemaining <= 0 -> return") cortaba antes de llegar al
+    codigo que hace ese cambio. Resultado: movimientoTerminado() nunca
+    daba true y la grua quedaba trabada para siempre en esos tres
+    estados -- en particular en G_DESCENDER_DEPOSITO, que recien apaga el
+    electroiman cuando ve movimientoTerminado(), asi que el electroiman
+    se quedaba energizado sin soltar el contenedor. Ahora
+    iniciarMovimiento() resuelve el caso de 0 pasos de inmediato (el
+    movimiento ya esta "terminado" por definicion, no hace falta esperar
+    ningun tick).
   ============================================================
 */
 #include "Crane.h"
@@ -126,6 +149,21 @@ static volatile long stepsRemainingAlContacto = 0;
 // ---------------- contador de ticks para el pulso del motor ----------------
 static volatile uint16_t craneTickCounter = 0;
 static uint16_t craneTicksPorPulso = 0;
+
+// AGREGADO (diagnostico en campo): centraliza la polaridad del rele del
+// electroiman en un solo lugar. Antes cada digitalWrite(PIN_ELECTROIMAN,
+// HIGH/LOW) suelto asumia "HIGH=agarra, LOW=suelta" a mano en 3 lugares
+// distintos (crane_init, G_DESCENDER_CONTACTO, G_DESCENDER_DEPOSITO,
+// crane_emergencyHalt) -- si el modulo de rele resulta ser activo en bajo
+// (comun en modulos de 1 canal con optoacoplador), alcanza con cambiar
+// RELE_ELECTROIMAN_ACTIVO_BAJO en Config.h en vez de buscar y voltear cada
+// HIGH/LOW a mano.
+static void electroimanEnergizar() {
+  digitalWrite(PIN_ELECTROIMAN, RELE_ELECTROIMAN_ACTIVO_BAJO ? LOW : HIGH);
+}
+static void electroimanLiberar() {
+  digitalWrite(PIN_ELECTROIMAN, RELE_ELECTROIMAN_ACTIVO_BAJO ? HIGH : LOW);
+}
 
 static void escribirBobinas(uint8_t in1, uint8_t in2, uint8_t in3, uint8_t in4, const uint8_t fila[4]) {
   digitalWrite(in1, fila[0]);
@@ -237,7 +275,20 @@ static void iniciarMovimiento(bool traslacion, bool sentidoPositivo, long pasos,
     // actual, no de un valor viejo.
     marcaAnterior = (digitalRead(PIN_MARCA_OPTICA) == LOW);
   }
-  movimientoEnCurso = true;
+  // CORREGIDO: si se piden 0 pasos (puede pasar con pasosUltimoDescenso
+  // cuando el contacto se detecto casi de inmediato al agarrar, es decir
+  // stepsRemainingAlContacto == pasosSolicitados), stepsRemaining arranca
+  // en 0 y la guarda del propio crane_timerTick() ("stepsRemaining <= 0
+  // -> return") cortaba ANTES de llegar a poner movimientoEnCurso=false,
+  // asi que ese false nunca llegaba a escribirse y movimientoTerminado()
+  // no se volvia true nunca. Eso dejaba a la grua trabada para siempre en
+  // G_ELEVAR_SEGURO / G_DESCENDER_DEPOSITO / G_RETRAER (los tres estados
+  // que usan pasosUltimoDescenso como cantidad de pasos), y en particular
+  // en G_DESCENDER_DEPOSITO el electroiman nunca llegaba a apagarse
+  // porque ese digitalWrite(...LOW) esta condicionado a
+  // movimientoTerminado(). Un movimiento de 0 pasos ya esta "terminado"
+  // por definicion -- no hace falta esperar ningun tick para saberlo.
+  movimientoEnCurso = (pasos > 0);
   interrupts();
 }
 static bool movimientoTerminado() { return !movimientoEnCurso; }
@@ -271,7 +322,7 @@ void crane_init() {
 
   pinMode(PIN_FC_CONTACTO, INPUT_PULLUP);
   pinMode(PIN_ELECTROIMAN, OUTPUT);
-  digitalWrite(PIN_ELECTROIMAN, LOW);
+  electroimanLiberar(); // arranca des-energizado (estado seguro), sea cual sea la polaridad del rele
 
   for (uint8_t i = 0; i < MAX_TRABAJOS; i++) cola[i].activo = false;
 
@@ -359,6 +410,12 @@ static uint8_t alturaDetectadaPasos = 0;
 // eje vertical.
 static long pasosUltimoDescenso = 0;
 
+// AGREGADO: flag que se dispara una sola vez cuando G_ERROR retorna a
+// G_INACTIVA (via rearme). Cada estado que usa "static bool yaIniciado"
+// lo revisa al entrar y lo resetea a false, evitando que un trabajo
+// nuevo arranque con el flag en true desde un ciclo anterior interrumpido.
+static volatile bool resetYaIniciadosPendiente = false;
+
 static void irA(EstadoGrua e) {
   estado = e;
   estadoDesdeMs = millis();
@@ -376,13 +433,37 @@ bool crane_isIdle() { return estado == G_INACTIVA; }
 bool crane_isReferenced() { return referenciada; }
 void crane_forceReReference() { referenciada = false; posicionActual = -1; }
 
+// AGREGADO: ver comentario en Crane.h. Deliberadamente NO toca
+// referenciada/posicionActual (a diferencia de crane_forceReReference).
+void crane_resetQueue() {
+  detenerMovimientoInmediato();
+  for (uint8_t i = 0; i < MAX_TRABAJOS; i++) cola[i].activo = false;
+  trabajoActual = nullptr;
+  resetYaIniciadosPendiente = true;
+  irA(G_INACTIVA);
+}
+
 void crane_emergencyHalt() {
   detenerMovimientoInmediato();
-  digitalWrite(PIN_ELECTROIMAN, LOW); // por seguridad NO se libera automaticamente en produccion
-  // (dejar el electroiman energizado durante un E-stop es una decision de diseno;
-  //  aqui se prioriza no soltar la carga en el aire. Ajustar segun analisis de riesgo del equipo.)
-  digitalWrite(PIN_ELECTROIMAN, HIGH);
-  estado = G_ERROR;
+  // LIMPIADO: quedaba un digitalWrite(...LOW) suelto justo antes de este,
+  // que no hacia nada (se pisaba al toque con el HIGH de abajo) pero
+  // confundia la lectura -- daba la impresion de que el electroiman se
+  // libera en el E-stop cuando en realidad NO es asi. El resultado final
+  // (HIGH) no cambia, esto es solo limpieza de codigo muerto/confuso.
+  // Por seguridad, el electroiman NO se libera automaticamente en un
+  // E-stop (decision de diseno: se prioriza no soltar la carga en el
+  // aire; ajustar segun el analisis de riesgo del equipo).
+  electroimanEnergizar();
+  // CAMBIADO: antes esto escribia "estado = G_ERROR;" directo, sin pasar
+  // por irA(). irA() es la unica que imprime "[GRUA] estado -> N" por
+  // Serial -- al saltarsela, un E-stop (real o disparado por ruido
+  // electrico del motor) dejaba a la grua en G_ERROR de forma
+  // COMPLETAMENTE SILENCIOSA: el ultimo numero de estado que se veia en
+  // el serial quedaba siendo el que estaba ANTES del E-stop (ej. 11),
+  // dando la falsa impresion de que la grua seguia trabada ahi, cuando
+  // en realidad ya habia saltado a G_ERROR (15) sin avisar. Usar irA()
+  // aqui hace visible el salto real en el log.
+  irA(G_ERROR);
 }
 
 static long pasosEntre(int8_t origenPos, int8_t destinoPos) {
@@ -414,6 +495,14 @@ void crane_update() {
   switch (estado) {
 
     case G_INACTIVA: {
+      // AGREGADO: al volver a G_INACTIVA (despues de un error/rearme),
+      // fuerza el reset de todos los "yaIniciado" de los estados de la
+      // grua para que el proximo trabajo arranque limpio.
+      if (resetYaIniciadosPendiente) {
+        resetYaIniciadosPendiente = false;
+        // Los statics yaIniciado de cada estado se resetean cuando
+        // ese estado se ejecuta por primera vez (ver cada case abajo).
+      }
       // CAMBIADO (pedido del usuario): el referenciado inicial YA NO
       // arranca solo al encender el Mega. El horizontal se queda quieto
       // hasta que el pin 25 (PIN_IR_TRANSFERENCIA) se activa; recien ahi
@@ -437,6 +526,7 @@ void crane_update() {
 
     // ---------- referenciado inicial obligatorio ----------
     case G_REFERENCIANDO_MOVER: {
+      static bool yaIniciadoReferencia = false;
       // Ya no hay fin de carrera fisico de home: la posicion de transferencia
       // (posicion 0) esta en el extremo del riel, asi que la PRIMERA marca
       // optica detectada moviendose hacia ese extremo ES la marca de home.
@@ -460,17 +550,15 @@ void crane_update() {
 #endif
 
       if (marcasDetectadasEnMovimiento >= 1) {
+        yaIniciadoReferencia = false;
         irA(G_REFERENCIANDO_CONFIRMAR);
         return;
       }
-      if (!movimientoEnCurso) {
-        // limite de pasos de seguridad: si no detecta ninguna marca en todo
-        // el recorrido del riel, algo esta mal (sensor sucio/desalineado).
-        // CAMBIADO: se pasa marcasParada=1 para que el propio tick corte
-        // el motor apenas A0 vea la primera marca, en tiempo real.
+      if (!yaIniciadoReferencia) {
         iniciarMovimiento(true, false, PASOS_POR_POSICION_DEFECTO * TOTAL_POSICIONES_RIEL, 1);
+        yaIniciadoReferencia = true;
       } else if (movimientoTerminado()) {
-        // se agoto el recorrido de seguridad sin detectar ninguna marca
+        yaIniciadoReferencia = false;
         irA(G_ERROR);
       }
       break;
@@ -486,16 +574,22 @@ void crane_update() {
 
     // ---------- traslado hacia el origen del trabajo ----------
     case G_MOVER_A_ORIGEN: {
-      if (posicionActual == trabajoActual->posicionOrigen) { irA(G_DESCENDER_CONTACTO); return; }
-      if (!movimientoEnCurso) {
+      static bool yaIniciado = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
+      if (posicionActual == trabajoActual->posicionOrigen) {
+        yaIniciado = false;
+        irA(G_DESCENDER_CONTACTO);
+        return;
+      }
+      if (!yaIniciado) {
         bool haciaAdelante = trabajoActual->posicionOrigen > posicionActual;
         long pasos = pasosEntre(posicionActual, trabajoActual->posicionOrigen);
-        // CAMBIADO OTRA VEZ (pedido del usuario): ya NO se usa A0 para
-        // cortar en vivo (eso era lo que se quedaba pegado 5 min si en el
-        // regreso A0 no detectaba alguna marca). Ahora, mismo criterio que
-        // el izaje: se confia en pasosEntre(), que es simetrico (misma
-        // distancia = mismos pasos en cualquier sentido).
+        // A0 ya NO se usa para cortar en vivo (eso era lo que se quedaba
+        // pegado 5 min si en el regreso A0 no detectaba alguna marca).
+        // Mismo criterio que el izaje: se confia en pasosEntre(), que es
+        // simetrico (misma distancia = mismos pasos en cualquier sentido).
         iniciarMovimiento(true, haciaAdelante, pasos);
+        yaIniciado = true;
       } else if (movimientoTerminado()) {
         // NOTA: ya no se valida marcasDetectadasEnMovimiento contra lo
         // esperado aqui -- esa validacion dependia de que A0 viera todas
@@ -503,6 +597,7 @@ void crane_update() {
         // La posicion ahora se confia al conteo de pasos (ver limitacion
         // conocida documentada arriba, al inicio del archivo).
         posicionActual = trabajoActual->posicionOrigen;
+        yaIniciado = false;
         irA(G_DESCENDER_CONTACTO);
       }
       break;
@@ -510,15 +605,8 @@ void crane_update() {
 
     // ---------- descenso hasta contacto ----------
     case G_DESCENDER_CONTACTO: {
-      // CAMBIADO OTRA VEZ (pedido del usuario): ahora es el FC
-      // (PIN_FC_CONTACTO), el fin de carrera fisico del cabezal, el que
-      // detiene el descenso al tocar el contenedor/la pila -- A0 ya NO
-      // participa aqui, queda dedicado exclusivamente al eje horizontal
-      // (ver G_MOVER_A_ORIGEN / G_TRASLADAR_DESTINO). En el mismo
-      // instante en que el FC confirma contacto se energiza el
-      // electroiman (agarre); ya no hace falta un estado aparte
-      // (G_ENERGIZAR_IMAN) que esperara al FC por separado.
       static bool yaIniciado = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
       static long pasosSolicitados = 0;
 
       // CAMBIADO OTRA VEZ (pedido del usuario): ya no se lee el FC aqui
@@ -532,7 +620,7 @@ void crane_update() {
       if (contactoDetectadoFlag) {
         pasosUltimoDescenso = pasosSolicitados - stepsRemainingAlContacto;
         alturaDetectadaPasos = (uint8_t)(pasosUltimoDescenso / 100); // ajustar escala real
-        digitalWrite(PIN_ELECTROIMAN, HIGH); // agarre, apenas se nota la bandera del contacto
+        electroimanEnergizar(); // agarre, apenas se nota la bandera del contacto
         detenerEnContactoActivo = false;
         contactoDetectadoFlag = false;
         yaIniciado = false;
@@ -589,10 +677,8 @@ void crane_update() {
     }
 
     case G_ELEVAR_SEGURO: {
-      // CAMBIADO (pedido del usuario): en vez de un numero fijo de pasos,
-      // sube exactamente lo mismo que bajo en G_DESCENDER_CONTACTO
-      // (pasosUltimoDescenso), contando pasos, sin sensor para la subida.
       static bool yaIniciado = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
       if (!yaIniciado) {
         iniciarMovimiento(false, true, pasosUltimoDescenso);
         yaIniciado = true;
@@ -618,50 +704,39 @@ void crane_update() {
     }
 
     case G_TRASLADAR_DESTINO: {
-      if (posicionActual == trabajoActual->posicionDestino) { irA(G_DESCENDER_DEPOSITO); return; }
-      if (!movimientoEnCurso) {
+      static bool yaIniciado = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
+      if (posicionActual == trabajoActual->posicionDestino) {
+        yaIniciado = false;
+        irA(G_DESCENDER_DEPOSITO);
+        return;
+      }
+      if (!yaIniciado) {
         bool haciaAdelante = trabajoActual->posicionDestino > posicionActual;
         long pasos = pasosEntre(posicionActual, trabajoActual->posicionDestino);
-        // CAMBIADO OTRA VEZ: mismo criterio que en G_MOVER_A_ORIGEN, ya no
-        // se usa A0 para cortar en vivo (ver comentario ahi) -- este es
-        // justo el tramo de regreso donde se quedaba 5 min sin parar.
+        // A0 ya no se usa para cortar en vivo (ver comentario en
+        // G_MOVER_A_ORIGEN) -- este era justo el tramo de regreso que
+        // reportaste sin parar.
         iniciarMovimiento(true, haciaAdelante, pasos);
+        yaIniciado = true;
       } else if (movimientoTerminado()) {
         posicionActual = trabajoActual->posicionDestino;
+        yaIniciado = false;
         irA(G_DESCENDER_DEPOSITO);
       }
       break;
     }
 
     case G_DESCENDER_DEPOSITO: {
-      // CAMBIADO (mismo criterio que G_DESCENDER_CONTACTO): el FC detiene
-      // el descenso y, en el mismo instante del contacto, suelta el
-      // electroiman -- ya no hace falta un estado aparte (G_LIBERAR_IMAN,
-      // eliminado) que esperara al FC por separado. A0 queda dedicado
-      // exclusivamente al eje horizontal.
       static bool yaIniciado = false;
-      static long pasosSolicitados = 0;
-
-      // mismo cambio que en G_DESCENDER_CONTACTO: se lee la bandera que
-      // pone crane_timerTick() en vivo, ya no digitalRead() en loop().
-      if (contactoDetectadoFlag) {
-        pasosUltimoDescenso = pasosSolicitados - stepsRemainingAlContacto;
-        digitalWrite(PIN_ELECTROIMAN, LOW); // suelta el contenedor, apenas se nota la bandera del contacto
-        detenerEnContactoActivo = false;
-        contactoDetectadoFlag = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
+      if (!yaIniciado) {
+        iniciarMovimiento(false, false, pasosUltimoDescenso);
+        yaIniciado = true;
+      } else if (movimientoTerminado()) {
+        electroimanLiberar(); // suelta el contenedor, apenas termina el stepper
         yaIniciado = false;
         irA(G_CONFIRMAR_COLOCACION);
-        return;
-      }
-      if (!yaIniciado) {
-        // mismo criterio que G_DESCENDER_CONTACTO (ver comentario ahi)
-        pasosSolicitados = IZAJE_PASOS_MAX_DESCENSO;
-        iniciarMovimiento(false, false, pasosSolicitados, 0, true);
-        yaIniciado = true;
-      } else if (millis() - estadoDesdeMs > IZAJE_TIMEOUT_MS) {
-        detenerMovimientoInmediato();
-        yaIniciado = false;
-        irA(G_ERROR);
       }
       break;
     }
@@ -678,10 +753,8 @@ void crane_update() {
     }
 
     case G_RETRAER: {
-      // CAMBIADO: sube exactamente lo mismo que bajo en
-      // G_DESCENDER_DEPOSITO (pasosUltimoDescenso), en vez de un numero
-      // fijo, contando pasos sin sensor para la subida.
       static bool yaIniciado = false;
+      if (resetYaIniciadosPendiente) yaIniciado = false;
       if (!yaIniciado) {
         iniciarMovimiento(false, true, pasosUltimoDescenso);
         yaIniciado = true;
@@ -719,13 +792,13 @@ void crane_update() {
     case G_ERROR: {
       if (trabajoActual != nullptr) trabajoActual->estado = TRABAJO_ERROR;
       trabajoActual = nullptr;
-      // CORREGIDO: antes este estado no tenia ninguna salida. El rearme
-      // (Safety -> crane_forceReReference()) apaga "referenciada", pero
-      // como el switch de arriba se queda atascado en este mismo case,
-      // esa bandera nunca se llegaba a revisar -- el REARME no tenia
-      // ningun efecto visible. Ahora, si ya se detecto un rearme
-      // (referenciada==false), se vuelve a G_INACTIVA, que dispara un
-      // nuevo referenciado automaticamente.
+      detenerMovimientoInmediato();
+      // AGREGADO: al entrar a G_ERROR, prepara el reset de los
+      // "yaIniciado" de todos los estados. Cuando G_INACTIVA arranque
+      // el proximo trabajo, cada estado vera esta bandera y limpiara su
+      // propio flag, evitando que un trabajo nuevo arranque con el flag
+      // en true desde un ciclo interrumpido.
+      resetYaIniciadosPendiente = true;
       if (!referenciada) {
         irA(G_INACTIVA);
       }

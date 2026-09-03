@@ -178,24 +178,29 @@ static void garita_update() {
       Serial.println();
 
       if (idCamion < 0) {
+        Serial.println(F("[GARITA] RECHAZO: RFID no reconocido"));
         safety_reportarCausa("RFID no reconocido");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
       if (!CAMIONES[idCamion].autorizadoLocal) {
+        Serial.println(F("[GARITA] RECHAZO: Camion no autorizado"));
         safety_reportarCausa("Camion no autorizado");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
       int idManif = buscarManifiestoPendiente(idCamion);
       if (idManif == -1) {
+        Serial.println(F("[GARITA] RECHAZO: Sin manifiesto pendiente para este camion"));
         safety_reportarCausa("Sin manifiesto pendiente");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
       if (idManif == -2) {
+        Serial.println(F("[GARITA] RECHAZO: Varios manifiestos pendientes"));
         safety_reportarCausa("Varios manifiestos pendientes");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
       Manifiesto &m = MANIFIESTOS[idManif];
       if (m.tipo == OP_NINGUNA) {
+        Serial.println(F("[GARITA] RECHAZO: Operacion invalida"));
         safety_reportarCausa("Operacion invalida");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
@@ -205,6 +210,7 @@ static void garita_update() {
       if (m.tipo == OP_DEPOSITO) {
         posicionAsignada = yard_buscarPosicionLibre();
         if (posicionAsignada < 0) {
+          Serial.println(F("[GARITA] RECHAZO: Sin posicion accesible en patio"));
           safety_reportarCausa("Sin posicion accesible en patio");
           estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
         }
@@ -220,6 +226,7 @@ static void garita_update() {
       // todo correcto: crear turno
       Turno *t = turnoLibre();
       if (t == nullptr) {
+        Serial.println(F("[GARITA] RECHAZO: No hay turnos disponibles (todos ocupados)"));
         safety_reportarCausa("Siguiente estacion no disponible");
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
@@ -620,6 +627,33 @@ void stations_update() {
   transferencia_update();
   salida_update();
   yard_update();
+}
+
+// AGREGADO: ver comentario en Stations.h.
+void stations_resetTurnos() {
+  for (uint8_t i = 0; i < MAX_TURNOS; i++) turnos[i].activo = false;
+  siguienteIdTurno = 0;
+
+  estadoGarita = GAR_LIBRE;
+  turnoEnGarita = nullptr;
+
+  estadoPesaje = PES_LIBRE;
+  turnoEnPesaje = nullptr;
+
+  estadoTransf = TR_LIBRE;
+  turnoEnTransf = nullptr;
+
+  estadoSalida = SAL_LIBRE;
+  turnoEnSalida = nullptr;
+
+  duenoTalanquera = 0;
+  servoTalanquera.write(SERVO_CERRADO);
+  servoAguja.write(AGUJA_RECTA);
+  semaforo(PIN_SEM_GARITA_R, PIN_SEM_GARITA_A, PIN_SEM_GARITA_V, 'R');
+  semaforo(PIN_SEM_TRANSF_R, PIN_SEM_TRANSF_A, PIN_SEM_TRANSF_V, 'R');
+  digitalWrite(PIN_FLECHA_VERDE, LOW);
+  digitalWrite(PIN_FLECHA_AMBAR, LOW);
+  lcdMostrar("PORTUS - Estado", "Esperando...");
 }
 
 uint8_t stations_contarTurnosActivos() {

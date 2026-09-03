@@ -13,6 +13,7 @@
 #include "Crane.h"
 #include "Weighing.h"
 #include "Safety.h"
+#include "PreloadedData.h"
 #include <Arduino.h>
 
 static String buffer = "";
@@ -25,6 +26,7 @@ static void imprimirAyuda() {
   Serial.println(F("  REARME  - solicita rearme tras paro de emergencia"));
   Serial.println(F("  CRUDO   - lectura cruda de las celdas (para calibrar)"));
   Serial.println(F("  TARA    - re-zera el offset con la plataforma vacia (sin recompilar)"));
+  Serial.println(F("  REINICIAR - reinicia turnos/grua/patio/manifiestos para repetir una prueba SIN recargar el sketch (usar con la maqueta despejada)"));
   Serial.println(F("  AYUDA   - esta lista"));
 }
 
@@ -82,6 +84,20 @@ static void procesarComando(String cmd) {
     } else {
       Serial.println(F("No se pudo tarar (timeout HX711), revisar cableado."));
     }
+  } else if (cmd == "REINICIAR") {
+    // AGREGADO: permite repetir una demostracion/prueba completa desde
+    // cero sin tener que recargar el sketch en el Arduino. El orden
+    // importa: primero se limpian turnos y grua (para no dejar
+    // punteros a un turno que esta a punto de desaparecer), despues se
+    // reinician los datos precargados (contenedores/manifiestos) y por
+    // ultimo el patio, que se reconstruye a partir de esos datos.
+    stations_resetTurnos();
+    crane_resetQueue();
+    preloadedData_reset();
+    yard_reset();
+    safety_reportarCausa("Sistema reiniciado por consola (REINICIAR)");
+    Serial.println(F("Listo: turnos, grua (cola), patio y manifiestos vueltos al estado inicial."));
+    Serial.println(F("La grua conserva su referenciado (no hace falta volver a hacer home)."));
   } else if (cmd.length() > 0) {
     Serial.println(F("Comando no reconocido. Escriba AYUDA."));
   }
