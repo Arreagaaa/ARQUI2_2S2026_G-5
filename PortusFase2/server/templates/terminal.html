@@ -1,0 +1,666 @@
+{% extends "base.html" %}
+
+{% block title %}PORTUS - Terminal de Control (Operador){% endblock %}
+
+{% block content %}
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('tab-operacion')">1. Operación</button>
+  <button class="tab-btn" onclick="switchTab('tab-turnos')">2. Turnos</button>
+  <button class="tab-btn" onclick="switchTab('tab-retenciones')">3. Retenciones</button>
+  <button class="tab-btn" onclick="switchTab('tab-patio')">4. Patio</button>
+  <button class="tab-btn" onclick="switchTab('tab-grua')">5. Grúa</button>
+  <button class="tab-btn" onclick="switchTab('tab-alarmas')">6. Alarmas</button>
+  <button class="tab-btn" onclick="switchTab('tab-citas')">7. Citas</button>
+  <button class="tab-btn" onclick="switchTab('tab-reportes')">8. Reportes</button>
+</div>
+
+<!-- ========================================== -->
+<!-- 1. PESTAÑA OPERACION (SINOPTICO EN VIVO)   -->
+<!-- ========================================== -->
+<div id="tab-operacion" class="tab-pane active">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Sinóptico en Vivo de la Terminal Portuaria</span>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <span style="font-size: 12px; color: var(--text-muted);">Modo del Sistema:</span>
+        <span id="syn-modo-badge" class="block-status-badge status-libre">NORMAL</span>
+        <span style="font-size: 12px; color: var(--text-muted); margin-left: 12px;">Última telemetría:</span>
+        <span id="syn-timestamp" style="font-family: monospace; font-size: 11px; color: var(--accent-cyan);">--</span>
+      </div>
+    </div>
+
+    <!-- Esquema grafico del sinoptico -->
+    <div class="synoptic-container">
+      <div class="synoptic-grid">
+        <!-- Zona de espera -->
+        <div class="synoptic-block" id="block-espera">
+          <div>
+            <div class="synoptic-label">Zona de Espera</div>
+            <div class="synoptic-value" id="syn-espera-cant">0 vehículos</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-espera-badge">Flujo Normal</span>
+        </div>
+
+        <!-- Garita -->
+        <div class="synoptic-block" id="block-garita">
+          <div>
+            <div class="synoptic-label">Garita de Acceso</div>
+            <div class="synoptic-value" id="syn-garita-estado">Libre</div>
+            <div class="synoptic-meta" id="syn-garita-vehiculo">Sin vehículo</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-garita-badge">Libre</span>
+        </div>
+
+        <!-- Talanquera -->
+        <div class="synoptic-block" id="block-talanquera">
+          <div>
+            <div class="synoptic-label">Talanquera de Ingreso</div>
+            <div class="synoptic-value" id="syn-talanquera-estado">Cerrada</div>
+          </div>
+          <span class="block-status-badge status-ocupado" id="syn-talanquera-badge">Cerrada</span>
+        </div>
+
+        <!-- Plataforma de pesaje -->
+        <div class="synoptic-block" id="block-pesaje">
+          <div>
+            <div class="synoptic-label">Plataforma de Pesaje</div>
+            <div class="synoptic-value" id="syn-pesaje-valor">0.0 kg</div>
+            <div class="synoptic-meta" id="syn-pesaje-estado">Libre</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-pesaje-badge">Libre</span>
+        </div>
+
+        <!-- Aguja desviadora -->
+        <div class="synoptic-block" id="block-aguja">
+          <div>
+            <div class="synoptic-label">Aguja Desviadora</div>
+            <div class="synoptic-value" id="syn-aguja-estado">Recta</div>
+            <div class="synoptic-meta">Hacia transferencia</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-aguja-badge">Recta</span>
+        </div>
+
+        <!-- Parqueo de retencion (3 plazas) -->
+        <div class="synoptic-block" id="block-parqueo">
+          <div>
+            <div class="synoptic-label">Parqueo de Retención (3 Plazas)</div>
+            <div style="font-size: 12px; margin-top: 6px;">
+              <div>P1: <span id="syn-p1" style="font-weight: 700; color: var(--status-green);">LIBRE</span></div>
+              <div>P2: <span id="syn-p2" style="font-weight: 700; color: var(--status-green);">LIBRE</span></div>
+              <div>P3: <span id="syn-p3" style="font-weight: 700; color: var(--status-green);">LIBRE</span></div>
+            </div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-parqueo-badge">0 / 3 Ocupadas</span>
+        </div>
+
+        <!-- Zona de transferencia -->
+        <div class="synoptic-block" id="block-transferencia">
+          <div>
+            <div class="synoptic-label">Zona de Transferencia</div>
+            <div class="synoptic-value" id="syn-transf-estado">Libre</div>
+            <div class="synoptic-meta" id="syn-transf-camion">Sin camión</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-transf-badge">Libre</span>
+        </div>
+
+        <!-- Grua 2 GDL -->
+        <div class="synoptic-block" id="block-grua">
+          <div>
+            <div class="synoptic-label">Grúa (2 GDL)</div>
+            <div class="synoptic-value" id="syn-grua-estado">En reposo</div>
+            <div class="synoptic-meta" id="syn-grua-pos">Posición riel: 0 (Transferencia)</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-grua-badge">Referenciada</span>
+        </div>
+
+        <!-- Cola de trabajos de grua -->
+        <div class="synoptic-block" id="block-cola-grua">
+          <div>
+            <div class="synoptic-label">Cola de Trabajos Grúa</div>
+            <div class="synoptic-value" id="syn-cola-cant">0 pendientes</div>
+            <div class="synoptic-meta" id="syn-trabajo-curso">Trabajo: Ninguno</div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-cola-badge">Al día</span>
+        </div>
+
+        <!-- Patio Posicion 0 -->
+        <div class="synoptic-block" onclick="openYardModal(0)" style="cursor: pointer;">
+          <div>
+            <div class="synoptic-label">Patio: Posición 0</div>
+            <div style="font-size: 12px; margin-top: 6px;">
+              <div>Nivel 1 (Alto): <span id="syn-p0-n1" style="color: var(--text-muted);">LIBRE</span></div>
+              <div>Nivel 0 (Base): <span id="syn-p0-n0" style="color: var(--status-green); font-weight: 700;">LIBRE</span></div>
+            </div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-p0-badge">Operativo</span>
+        </div>
+
+        <!-- Patio Posicion 1 -->
+        <div class="synoptic-block" onclick="openYardModal(1)" style="cursor: pointer;">
+          <div>
+            <div class="synoptic-label">Patio: Posición 1</div>
+            <div style="font-size: 12px; margin-top: 6px;">
+              <div>Nivel 1 (Alto): <span id="syn-p1-n1" style="color: var(--text-muted);">LIBRE</span></div>
+              <div>Nivel 0 (Base): <span id="syn-p1-n0" style="color: var(--text-muted);">LIBRE</span></div>
+            </div>
+          </div>
+          <span class="block-status-badge status-libre" id="syn-p1-badge">Operativo</span>
+        </div>
+
+        <!-- Puerta de salida -->
+        <div class="synoptic-block" id="block-puerta-salida">
+          <div>
+            <div class="synoptic-label">Puerta de Salida</div>
+            <div class="synoptic-value" id="syn-salida-estado">Cerrada</div>
+          </div>
+          <span class="block-status-badge status-ocupado" id="syn-salida-badge">Cerrada</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Barra de Comandos Remotos -->
+    <div style="margin-top: 16px;">
+      <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px;">
+        Control Remoto Directo de la Maqueta
+      </div>
+      <div class="control-actions-bar">
+        <button class="btn-cmd" id="btn-susp-grua" onclick="sendRemoteCommand('GruaSuspender')">Suspender Grúa</button>
+        <button class="btn-cmd" id="btn-rean-grua" onclick="sendRemoteCommand('GruaReanudar')">Reanudar Grúa</button>
+        <button class="btn-cmd" id="btn-ref-grua" onclick="sendRemoteCommand('GruaReferenciar')">Referenciar Grúa</button>
+        <button class="btn-cmd" onclick="confirmCommand('AbrirTalanquera', '¿Confirma abrir la talanquera de garita?')">Abrir Talanquera</button>
+        <button class="btn-cmd" onclick="sendRemoteCommand('CerrarTalanquera')">Cerrar Talanquera</button>
+        <button class="btn-cmd" onclick="confirmCommand('AbrirPuertaSalida', '¿Confirma abrir la puerta de salida?')">Abrir Puerta Salida</button>
+        <button class="btn-cmd" onclick="sendRemoteCommand('AgujaRecta')">Aguja Recta</button>
+        <button class="btn-cmd" onclick="sendRemoteCommand('AgujaParqueo')">Aguja Parqueo</button>
+        <button class="btn-cmd" onclick="sendRemoteCommand('AgujaLiberar', {plaza: 1})">Liberar Parqueo (Plaza 1)</button>
+        <button class="btn-cmd" onclick="confirmCommand('ModoMantenimiento', '¿Desea cambiar el Modo Mantenimiento?', {activar: true})">Activar Mantenimiento</button>
+        <button class="btn-cmd" onclick="sendRemoteCommand('ModoMantenimiento', {activar: false})">Desactivar Mantenimiento</button>
+        <button class="btn-cmd danger" onclick="sendRemoteCommand('AlarmaSilenciar')">Silenciar Alarma</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 2. PESTAÑA TURNOS                          -->
+<!-- ========================================== -->
+<div id="tab-turnos" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Operaciones y Turnos de Vehículos</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <select id="filtro-turno-estado" class="form-control" onchange="loadTurnos()">
+          <option value="">Todos los estados</option>
+          <option value="Programado">Programado</option>
+          <option value="EnGarita">EnGarita</option>
+          <option value="EnPesajeEntrada">EnPesajeEntrada</option>
+          <option value="EnRuta">EnRuta</option>
+          <option value="EnTransferencia">EnTransferencia</option>
+          <option value="EnPesajeSalida">EnPesajeSalida</option>
+          <option value="EnSalida">EnSalida</option>
+          <option value="Retenido">Retenido</option>
+          <option value="Cerrado">Cerrado</option>
+          <option value="Anulado">Anulado</option>
+        </select>
+        <select id="filtro-turno-tipo" class="form-control" onchange="loadTurnos()">
+          <option value="">Depósitos y Retiros</option>
+          <option value="DEPOSITO">Depósito</option>
+          <option value="RETIRO">Retiro</option>
+        </select>
+        <input type="text" id="filtro-turno-q" class="form-control" placeholder="Buscar vehículo / contenedor..." oninput="loadTurnos()">
+        <button class="btn-cmd" onclick="loadTurnos()">Actualizar</button>
+      </div>
+    </div>
+
+    <div style="font-weight: 700; color: var(--accent-cyan); margin-bottom: 8px;">Turnos Activos en Terminal</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID Turno</th>
+            <th>Vehículo</th>
+            <th>Transportista</th>
+            <th>Contenedor</th>
+            <th>Operación</th>
+            <th>Estado</th>
+            <th>Estación</th>
+            <th>Peso Decl.</th>
+            <th>Peso Entr.</th>
+            <th>Peso Sal.</th>
+            <th>Patio</th>
+            <th>Tiempo</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-turnos-activos">
+          <tr><td colspan="13" style="text-align: center; color: var(--text-muted);">Cargando turnos activos...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="font-weight: 700; color: var(--text-muted); margin-top: 24px; margin-bottom: 8px;">Histórico de Turnos Cerrados / Anulados</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID Turno</th>
+            <th>Vehículo</th>
+            <th>Contenedor</th>
+            <th>Operación</th>
+            <th>Estado Final</th>
+            <th>Peso Final</th>
+            <th>Duración</th>
+            <th>Línea de Tiempo</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-turnos-historicos">
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Sin turnos históricos</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 3. PESTAÑA RETENCIONES                     -->
+<!-- ========================================== -->
+<div id="tab-retenciones" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Bandeja de Retenciones y Parqueo de Espera</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <select id="filtro-ret-causa" class="form-control" onchange="loadRetenciones()">
+          <option value="">Todas las causas</option>
+          <option value="RT01">RT01: Discrepancia peso ingreso</option>
+          <option value="RT02">RT02: Discrepancia peso salida</option>
+          <option value="RT03">RT03: Canal rojo de selectivo</option>
+          <option value="RT04">RT04: Fuera de ventana</option>
+          <option value="RT05">RT05: Retención documental</option>
+          <option value="RT06">RT06: Retención manual operativa</option>
+        </select>
+        <button class="btn-cmd" onclick="loadRetenciones()">Actualizar</button>
+      </div>
+    </div>
+
+    <div style="font-weight: 700; color: var(--status-red); margin-bottom: 8px;">Retenciones Abiertas (Plazas 1 a 3)</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Turno / Placa</th>
+            <th>Contenedor</th>
+            <th>Causa</th>
+            <th>Estación</th>
+            <th>Plaza</th>
+            <th>Tiempo Retenido</th>
+            <th>Evidencia de Peso</th>
+            <th>Rol Facultado</th>
+            <th>Resolución</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-retenciones-abiertas">
+          <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">Sin retenciones abiertas</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="font-weight: 700; color: var(--text-muted); margin-top: 24px; margin-bottom: 8px;">Historial de Retenciones Resueltas</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Turno / Placa</th>
+            <th>Causa</th>
+            <th>Resolución</th>
+            <th>Resuelto Por</th>
+            <th>Tiempo Retención</th>
+            <th>Motivo / Observación</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-retenciones-resueltas">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Sin retenciones resueltas</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 4. PESTAÑA PATIO                           -->
+<!-- ========================================== -->
+<div id="tab-patio" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Patio Lineal de Contenedores e Inventario</span>
+      <div>
+        <button class="btn-cmd" onclick="bloquearPosicionPrompt(0)">Bloquear P0</button>
+        <button class="btn-cmd" onclick="liberarPosicion(0)">Liberar P0</button>
+        <button class="btn-cmd" onclick="bloquearPosicionPrompt(1)">Bloquear P1</button>
+        <button class="btn-cmd" onclick="liberarPosicion(1)">Liberar P1</button>
+        <button class="btn-cmd" onclick="loadPatio()">Actualizar</button>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Posición</th>
+            <th>Nivel</th>
+            <th>Contenedor</th>
+            <th>Naviera</th>
+            <th>Peso Decl.</th>
+            <th>Autorización</th>
+            <th>Estado Bloqueo</th>
+            <th>Fecha Ingreso</th>
+            <th>Reloj Permanencia</th>
+            <th>Remociones</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-inventario-patio">
+          <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">Cargando inventario...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 5. PESTAÑA GRUA                            -->
+<!-- ========================================== -->
+<div id="tab-grua" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Supervisión e Historial de Grúa (2 GDL)</span>
+      <div style="display: flex; gap: 10px;">
+        <select id="filtro-grua-limit" class="form-control" onchange="loadGruaHistory()">
+          <option value="50">Últimas 50 operaciones</option>
+          <option value="100">Últimas 100 operaciones</option>
+          <option value="200">Últimas 200 operaciones</option>
+        </select>
+        <button class="btn-cmd" onclick="exportGruaCSV()">Exportar Historial CSV</button>
+        <button class="btn-cmd" onclick="loadGruaHistory()">Actualizar</button>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted);">Ciclos Completados</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--accent-cyan);" id="grua-stat-ciclos">0</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted);">Tiempo Promedio de Ciclo</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--status-green);" id="grua-stat-promedio">0.0 s</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted);">Eventos de Falla</div>
+        <div style="font-size: 24px; font-weight: 700; color: var(--status-red);" id="grua-stat-fallas">0</div>
+      </div>
+    </div>
+
+    <div style="font-weight: 700; color: var(--text-muted); margin-bottom: 8px;">Registro Detallado de Movimientos de Grúa</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Turno</th>
+            <th>Tipo Trabajo</th>
+            <th>Origen</th>
+            <th>Destino</th>
+            <th>Tiempo Ciclo</th>
+            <th>Distancia</th>
+            <th>Resultado</th>
+            <th>Evento Falla</th>
+            <th>Marca de Tiempo</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-grua-ciclos">
+          <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">Sin operaciones registradas</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 6. PESTAÑA ALARMAS                         -->
+<!-- ========================================== -->
+<div id="tab-alarmas" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Gestión de Alarmas del Sistema (AL01 - AL14)</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <select id="filtro-alarma-sev" class="form-control" onchange="loadAlarmas()">
+          <option value="">Todas las severidades</option>
+          <option value="Critica">Crítica</option>
+          <option value="Alta">Alta</option>
+          <option value="Media">Media</option>
+          <option value="Baja">Baja</option>
+        </select>
+        <button class="btn-cmd" onclick="reconocerTodasBajasMedias()">Reconocer Todas (Bajas y Medias)</button>
+        <button class="btn-cmd" onclick="loadAlarmas()">Actualizar</button>
+      </div>
+    </div>
+
+    <div style="font-weight: 700; color: var(--status-red); margin-bottom: 8px;">Alarmas Activas Pendientes de Reconocimiento</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Código</th>
+            <th>Severidad</th>
+            <th>Descripción</th>
+            <th>Origen</th>
+            <th>Marca de Tiempo</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-alarmas-activas">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No hay alarmas activas</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="font-weight: 700; color: var(--text-muted); margin-top: 24px; margin-bottom: 8px;">Alarmas Históricas Reconocidas</div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Código</th>
+            <th>Severidad</th>
+            <th>Descripción</th>
+            <th>Reconocida Por</th>
+            <th>Fecha Reconocimiento</th>
+            <th>Comentario</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-alarmas-historicas">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Sin historial de alarmas</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 7. PESTAÑA CITAS                           -->
+<!-- ========================================== -->
+<div id="tab-citas" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Agenda de Citas y Control de Franjas (15 min)</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <input type="date" id="filtro-cita-fecha" class="form-control" onchange="loadCitas()">
+        <button class="btn-cmd" onclick="generarCodigoModal()">Generar Código Vinculación Transportista</button>
+        <button class="btn-cmd" onclick="loadCitas()">Actualizar</button>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Franja Horaria</th>
+            <th>Capacidad</th>
+            <th>Citas Asignadas</th>
+            <th>Transportista</th>
+            <th>Contenedor</th>
+            <th>Estado Cita</th>
+            <th>Cumplimiento Ventana</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-agenda-citas">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Cargando agenda...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 8. PESTAÑA REPORTES                        -->
+<!-- ========================================== -->
+<div id="tab-reportes" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Generación de Reporte de Corrida y Métricas de Operación</span>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" id="reporte-etiqueta" class="form-control" placeholder="Etiqueta de corrida (ej. Corrida de Evaluacion)" value="Corrida de Evaluacion" style="min-width: 250px;">
+      <input type="datetime-local" id="reporte-inicio" class="form-control">
+      <input type="datetime-local" id="reporte-fin" class="form-control">
+      <button class="btn-cmd" onclick="calcularMetricasReporte()">Calcular Métricas</button>
+      <button class="btn-cmd" onclick="descargarReporteCSV()">Exportar Reporte CSV</button>
+    </div>
+
+    <div style="font-weight: 700; color: var(--accent-cyan); margin-top: 16px; margin-bottom: 12px;">Las 8 Métricas Obligatorias</div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;" id="panel-metricas-grid">
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">1. Remociones / Retiro</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-remociones">0.0</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">2. Ciclos Grúa / Turno</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-ciclos">0.0</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">3. Distancia Grúa</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-distancia">0.0 m</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">4. Tiempo Camión Promedio</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-tiempo-camion">0.0 s</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">5. Tiempo Promedio Retención</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-tiempo-retencion">0.0 s</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">6. Max Fila Espera</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-max-espera">0</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">7. Citas Cumplidas en Ventana</div>
+        <div style="font-size: 22px; font-weight: 700; color: var(--text-main);" id="met-citas-pct">0.0%</div>
+      </div>
+      <div class="panel" style="background: var(--bg-surface);">
+        <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">8. Retenciones Desglosadas</div>
+        <div style="font-size: 14px; font-weight: 700; color: var(--text-main);" id="met-retenciones-desglose">0 registradas</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL LINEA DE TIEMPO -->
+<div id="modalTimeline" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="panel-title" id="timelineModalTitle">Línea de Tiempo del Turno</span>
+      <button class="btn-cmd" onclick="closeModal('modalTimeline')">Cerrar</button>
+    </div>
+    <div style="max-height: 400px; overflow-y: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Marca de Tiempo</th>
+            <th>Origen</th>
+            <th>Descripción</th>
+            <th>Valores Asociados</th>
+          </tr>
+        </thead>
+        <tbody id="timelineModalBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RESOLVER RETENCION -->
+<div id="modalResolverRet" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="panel-title">Resolver Retención</span>
+      <button class="btn-cmd" onclick="closeModal('modalResolverRet')">Cerrar</button>
+    </div>
+    <div id="retResolveInfo" style="margin-bottom: 16px; font-size: 13px;"></div>
+    <div class="form-group" id="groupMotivoRechazo" style="display: none;">
+      <label>Motivo obligatorio de rechazo:</label>
+      <input type="text" id="inputMotivoRechazo" class="form-control" style="width: 100%;">
+    </div>
+    <div class="form-group">
+      <label>Observación opcional:</label>
+      <input type="text" id="inputObsResolucion" class="form-control" style="width: 100%;">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cmd" onclick="submitResolucion('ACLARAR')" id="btnModalAclarar">Aclarar</button>
+      <button class="btn-cmd" onclick="submitResolucion('CORREGIR')" id="btnModalCorregir">Corregir Peso</button>
+      <button class="btn-cmd danger" onclick="submitResolucion('RECHAZAR')" id="btnModalRechazar">Rechazar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VINCULACION TRANSPORTISTA -->
+<div id="modalVinculacion" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="panel-title">Generar Código de Vinculación</span>
+      <button class="btn-cmd" onclick="closeModal('modalVinculacion')">Cerrar</button>
+    </div>
+    <div class="form-group">
+      <label>Seleccionar Transportista:</label>
+      <select id="selTransVinculacion" class="form-control" style="width: 100%;">
+        <option value="trans_rapido">Transportes Rápidos del Sur (trans_rapido)</option>
+        <option value="trans_global">Logística Global de Carga (trans_global)</option>
+      </select>
+    </div>
+    <div id="codigoResultBox" style="display: none; padding: 16px; background: var(--bg-surface); text-align: center; margin-top: 16px; border-radius: 4px;">
+      <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted);">Código generado (Válido por 60 min):</div>
+      <div id="codigoGeneradoVal" style="font-size: 32px; font-weight: 800; letter-spacing: 4px; color: var(--accent-cyan); margin: 10px 0;"></div>
+      <div style="font-size: 12px; color: var(--text-muted);">Comando para el transportista: <strong id="comandoVinculacionSugerido">/vincular CODIGO</strong></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cmd" onclick="ejecutarGeneracionCodigo()">Generar Código</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+<script>
+  // Inicializacion automatica al cargar la interfaz de terminal
+  window.addEventListener('DOMContentLoaded', () => {
+    loadTurnos();
+    loadRetenciones();
+    loadPatio();
+    loadGruaHistory();
+    loadAlarmas();
+    loadCitas();
+  });
+</script>
+{% endblock %}

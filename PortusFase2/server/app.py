@@ -1,0 +1,883 @@
+"""
+Servidor web principal para PORTUS Fase 2.
+Construido sobre Flask, con autenticacion por roles, matriz de permisos en backend,
+distribucion de eventos en tiempo real via Server-Sent Events (SSE) sin polling,
+y endpoints REST para la cadena documental y los comandos remotos.
+"""
+
+import os
+import json
+import uuid
+import time
+import queue
+import logging
+import threading
+from datetime import datetime, timezone
+
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+import paho.mqtt.client as mqtt
+
+from .database import get_db_connection, init_database
+from .auth import authenticate_user, login_required, require_permission, PERMISOS_MATRIZ
+from .turn_manager import create_turn, transition_turn, get_turn_timeline, add_timeline_event
+from .retention_manager import (
+    get_parking_occupancy, assign_retention, resolve_retention, CAUSAS_ROLES
+)
+from .alarm_manager import raise_alarm, acknowledge_alarm, acknowledge_all_low_medium, get_alarms
+from .yard_crane_manager import (
+    get_yard_inventory, update_yard_on_physical_confirmation, set_position_blocked,
+    get_crane_history, record_crane_cycle
+)
+from .metrics import calculate_metrics, export_report_csv
+from ..mensajeria.messaging_service import TransportistaMessagingService, generate_binding_code
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+app = Flask(__name__, template_folder="templates", static_folder="static")
+app.secret_key = "portus_secret_key_usac_arqui2_2026"
+
+# Colas de transmision en tiempo real para clientes SSE conectados
+event_queues = []
+event_queues_lock = threading.Lock()
+
+# Ultimo estado conocido de la maqueta y del enlace
+terminal_state = {
+    "modo": "NORMAL",
+    "enlace": "CONECTADO",
+    "ultimo_latido_timestamp": datetime.now(timezone.utc).isoformat(),
+    "garita": {"estado": "Libre", "vehiculo": None},
+    "talanquera": "Cerrada",
+    "pesaje": {"estado": "Libre", "ultimo_valor_kg": 0.0, "resultado": "Valido"},
+    "aguja": "Recta",
+    "parqueo": {1: None, 2: None, 3: None},
+    "transferencia": {"estado": "Libre", "vehiculo": None},
+    "grua": {
+        "estado": "En reposo",
+        "posicion": 0,
+        "trabajo_en_curso": None,
+        "cola_pendientes": 0,
+        "suspendida": False,
+        "referenciada": True,
+        "en_falla": False
+    },
+    "puerta_salida": "Cerrada",
+    "zona_espera": {"cantidad_vehiculos": 0}
+}
+
+# Servicio de mensajeria
+msg_service = TransportistaMessagingService()
+
+# Cliente MQTT del servidor
+mqtt_client: mqtt.Client = None
+
+
+def dispatch_event_to_sse(event_data: dict):
+    with event_queues_lock:
+        dead_queues = []
+        for q in event_queues:
+            try:
+                q.put_nowait(event_data)
+            except Exception:
+                dead_queues.append(q)
+        for dq in dead_queues:
+            if dq in event_queues:
+                event_queues.remove(dq)
+
+
+def on_mqtt_message(client, userdata, msg):
+    try:
+        payload_str = msg.payload.decode("utf-8")
+        data = json.loads(payload_str)
+        topic = msg.topic
+        datos = data.get("datos", {})
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        terminal_state["ultimo_latido_timestamp"] = now_str
+
+        # Actualizar estado interno segun el topico
+        if topic == "portus/evt/estado":
+            if data.get("tipo") == "EnlacePerdido":
+                terminal_state["enlace"] = "DESCONECTADO"
+            elif data.get("tipo") == "EnlaceRestablecido":
+                terminal_state["enlace"] = "CONECTADO"
+            else:
+                terminal_state["enlace"] = "CONECTADO"
+                terminal_state["modo"] = datos.get("modo", terminal_state["modo"])
+                terminal_state["talanquera"] = datos.get("talanquera", terminal_state["talanquera"])
+                terminal_state["aguja"] = datos.get("aguja", terminal_state["aguja"])
+                terminal_state["grua"]["posicion"] = datos.get("grua_pos", terminal_state["grua"]["posicion"])
+                terminal_state["grua"]["cola_pendientes"] = datos.get("cola_grua", terminal_state["grua"]["cola_pendientes"])
+                terminal_state["grua"]["suspendida"] = (datos.get("grua_susp") == "SI")
+                terminal_state["grua"]["referenciada"] = (datos.get("grua_ref") == "SI")
+                terminal_state["grua"]["en_falla"] = (datos.get("grua_falla") == "SI")
+
+        elif topic == "portus/evt/garita":
+            tipo_ev = data.get("tipo")
+            if tipo_ev == "GaritaIdentificacion":
+                terminal_state["garita"]["estado"] = "Validando"
+                terminal_state["garita"]["vehiculo"] = datos.get("uid")
+            elif "RECHAZADO" in str(datos):
+                terminal_state["garita"]["estado"] = "Rechazada"
+            else:
+                terminal_state["garita"]["estado"] = "Autorizada"
+
+        elif topic == "portus/evt/pesaje":
+            terminal_state["pesaje"]["estado"] = "Medicion valida"
+            if "peso" in datos:
+                try:
+                    terminal_state["pesaje"]["ultimo_valor_kg"] = float(datos["peso"])
+                except Exception:
+                    pass
+
+        elif topic == "portus/evt/aguja":
+            terminal_state["aguja"] = datos.get("posicion", terminal_state["aguja"])
+
+        elif topic == "portus/evt/grua":
+            terminal_state["grua"]["estado"] = data.get("tipo", "Operando")
+
+        elif topic == "portus/evt/alarma":
+            cod = datos.get("codigo", "AL00")
+            raise_alarm(cod, origen=data.get("origen", "controlador"), datos=datos)
+
+        elif topic == "portus/cmd/respuesta":
+            resultado = datos.get("resultado")
+            cmd = datos.get("comando")
+            if resultado == "NAK":
+                # Alarma AL14 obligatoria si controlador rechaza comando
+                raise_alarm("AL14", origen="controlador", datos={"comando": cmd, "error": datos.get("error")})
+
+        # Notificar instantaneamente al navegador via SSE (sin polling)
+        dispatch_event_to_sse({"topic": topic, "data": data, "state": terminal_state})
+
+    except Exception as e:
+        logging.error("Error procesando mensaje MQTT en server: %s", e)
+
+
+def init_mqtt():
+    global mqtt_client
+    mqtt_client = mqtt.Client(client_id=f"portus_server_{uuid.uuid4().hex[:6]}")
+    mqtt_client.on_connect = lambda c, u, f, rc: c.subscribe("portus/#") if rc == 0 else None
+    mqtt_client.on_message = on_mqtt_message
+    try:
+        mqtt_client.connect("localhost", 1883, keepalive=60)
+        mqtt_client.loop_start()
+        logging.info("Servidor web conectado a MQTT en localhost:1883 (suscrito a portus/#)")
+    except Exception as e:
+        logging.warning("No se pudo conectar a MQTT en localhost:1883: %s", e)
+
+
+# -------------------------------------------------------------
+# RUTAS DE AUTENTICACION Y NAVEGACION
+# -------------------------------------------------------------
+@app.route("/")
+def index():
+    if "user" not in session:
+        return redirect(url_for("login_page"))
+    rol = session["user"]["rol"]
+    if rol == "TERMINAL":
+        return redirect(url_for("view_terminal"))
+    elif rol == "NAVIERA":
+        return redirect(url_for("view_naviera"))
+    elif rol == "AGENTE":
+        return redirect(url_for("view_agente"))
+    elif rol == "AUTORIDAD":
+        return redirect(url_for("view_autoridad"))
+    return redirect(url_for("login_page"))
+
+
+@app.route("/login")
+def login_page():
+    if "user" in session:
+        return redirect(url_for("index"))
+    return render_template("login.html")
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    user = authenticate_user(username, password)
+    if not user:
+        return jsonify({"error": "Credenciales invalidas. Verifique usuario y contraseña."}), 401
+
+    if user["rol"] == "TRANSPORTISTA":
+        return jsonify({"error": "El rol TRANSPORTISTA no tiene acceso a la aplicacion web. Debe operar desde el canal de mensajeria."}), 403
+
+    session["user"] = user
+    return jsonify({
+        "success": True,
+        "user": user,
+        "redirect": url_for("index")
+    })
+
+
+@app.route("/api/logout", methods=["POST", "GET"])
+def api_logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+# -------------------------------------------------------------
+# VISTAS POR ROL CON SUS PESTAÑAS OBLIGATORIAS
+# -------------------------------------------------------------
+@app.route("/terminal")
+@login_required
+def view_terminal():
+    if session["user"]["rol"] != "TERMINAL":
+        return "Acceso denegado: esta interfaz es exclusiva del rol TERMINAL", 403
+    return render_template("terminal.html", user=session["user"])
+
+
+@app.route("/naviera")
+@login_required
+def view_naviera():
+    if session["user"]["rol"] != "NAVIERA":
+        return "Acceso denegado: esta interfaz es exclusiva del rol NAVIERA", 403
+    return render_template("naviera.html", user=session["user"])
+
+
+@app.route("/agente")
+@login_required
+def view_agente():
+    if session["user"]["rol"] != "AGENTE":
+        return "Acceso denegado: esta interfaz es exclusiva del rol AGENTE", 403
+    return render_template("agente.html", user=session["user"])
+
+
+@app.route("/autoridad")
+@login_required
+def view_autoridad():
+    if session["user"]["rol"] != "AUTORIDAD":
+        return "Acceso denegado: esta interfaz es exclusiva del rol AUTORIDAD", 403
+    return render_template("autoridad.html", user=session["user"])
+
+
+# -------------------------------------------------------------
+# EVENT STREAMING (SSE) - SIN POLLING (REQUISITO ESTRICTO)
+# -------------------------------------------------------------
+@app.route("/api/stream/events")
+@login_required
+def sse_events():
+    def event_generator():
+        q = queue.Queue(maxsize=100)
+        with event_queues_lock:
+            event_queues.append(q)
+
+        # Enviar estado inicial completo de inmediato
+        init_payload = json.dumps({"topic": "portus/init", "state": terminal_state})
+        yield f"data: {init_payload}\n\n"
+
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=10.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except queue.Empty:
+                    # Keepalive SSE cada 10 segundos
+                    yield ": keepalive\n\n"
+        finally:
+            with event_queues_lock:
+                if q in event_queues:
+                    event_queues.remove(q)
+
+    return Response(event_generator(), mimetype="text/event-stream")
+
+
+# -------------------------------------------------------------
+# API: COMANDOS REMOTOS (ROL TERMINAL)
+# -------------------------------------------------------------
+@app.route("/api/cmd/remote", methods=["POST"])
+@login_required
+@require_permission("emitir_comandos_remotos")
+def execute_remote_command():
+    data = request.get_json() or {}
+    comando = data.get("comando")
+    parametros = data.get("parametros", {})
+
+    if not comando:
+        return jsonify({"error": "Comando no especificado"}), 400
+
+    # Publicar comando a portus/cmd/solicitud
+    msg_id = str(uuid.uuid4())
+    msg_out = {
+        "id": msg_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "origen": "servidor",
+        "tipo": "SolicitudComando",
+        "comando": comando,
+        "parametros": parametros,
+        "usuario": session["user"]["username"]
+    }
+
+    if mqtt_client:
+        mqtt_client.publish("portus/cmd/solicitud", json.dumps(msg_out), qos=1)
+
+    return jsonify({"success": True, "message": f"Comando '{comando}' despachado al controlador"})
+
+
+# -------------------------------------------------------------
+# API: MANIFIESTOS (NAVIERA / TERMINAL / AGENTE / AUTORIDAD)
+# -------------------------------------------------------------
+@app.route("/api/manifiestos", methods=["GET"])
+@login_required
+@require_permission("ver_manifiesto_completo")
+def list_manifiestos():
+    user = session["user"]
+    conn = get_db_connection()
+
+    if user["rol"] == "NAVIERA":
+        # Aislamiento estricto: solo sus propios manifiestos
+        rows = conn.execute("""
+        SELECT * FROM manifiestos WHERE naviera_id = ? ORDER BY id DESC
+        """, (user["username"],)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM manifiestos ORDER BY id DESC").fetchall()
+
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/manifiestos", methods=["POST"])
+@login_required
+@require_permission("crear_manifiesto")
+def create_manifiesto():
+    data = request.get_json() or {}
+    user = session["user"]
+
+    contenedor_id = data.get("contenedor_id", "").strip().upper()
+    tipo_operacion = data.get("tipo_operacion")
+    peso_declarado = data.get("peso_declarado")
+    tolerancia = data.get("tolerancia", 5.0)
+    transportista_id = data.get("transportista_id")
+    observaciones = data.get("observaciones", "")
+
+    # Validaciones obligatorias
+    if not contenedor_id or not tipo_operacion or peso_declarado is None or not transportista_id:
+        return jsonify({"error": "Faltan campos obligatorios"}), 400
+
+    try:
+        peso_declarado = int(peso_declarado)
+        if peso_declarado <= 0:
+            return jsonify({"error": "El peso declarado debe ser mayor que cero"}), 400
+    except ValueError:
+        return jsonify({"error": "Peso declarado invalido"}), 400
+
+    try:
+        tolerancia = float(tolerancia)
+    except ValueError:
+        tolerancia = 5.0
+
+    conn = get_db_connection()
+    # 1. Validar que exista en catalogo
+    cat = conn.execute("SELECT id FROM catalogo_contenedores WHERE id = ?", (contenedor_id,)).fetchone()
+    if not cat:
+        conn.close()
+        return jsonify({"error": f"El contenedor '{contenedor_id}' no existe en el catalogo oficial de la maqueta"}), 400
+
+    # 2. Regla: Un contenedor no podra tener dos manifiestos pendientes al mismo tiempo
+    pendiente = conn.execute("""
+    SELECT id FROM manifiestos
+    WHERE contenedor_id = ? AND estado_documental NOT IN ('CERRADO', 'ANULADO')
+    """, (contenedor_id,)).fetchone()
+    if pendiente:
+        conn.close()
+        return jsonify({"error": f"El contenedor '{contenedor_id}' ya posee un manifiesto activo ({pendiente['id']})"}), 400
+
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) as count FROM manifiestos")
+    count = c.fetchone()["count"] + 1
+    manif_id = f"MAN-{count:04d}"
+
+    now = datetime.now(timezone.utc).isoformat()
+    c.execute("""
+    INSERT INTO manifiestos (
+        id, contenedor_id, naviera_id, tipo_operacion, peso_declarado_g,
+        tolerancia_pct, transportista_id, observaciones, estado_documental,
+        created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREADO', ?, ?)
+    """, (manif_id, contenedor_id, user["username"], tipo_operacion, peso_declarado, tolerancia, transportista_id, observaciones, now, now))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "id": manif_id, "message": "Manifiesto declarado exitosamente"})
+
+
+@app.route("/api/manifiestos/<manif_id>/anular", methods=["POST"])
+@login_required
+@require_permission("crear_manifiesto")
+def anular_manifiesto(manif_id):
+    user = session["user"]
+    conn = get_db_connection()
+    manif = conn.execute("SELECT * FROM manifiestos WHERE id = ?", (manif_id,)).fetchone()
+
+    if not manif:
+        conn.close()
+        return jsonify({"error": "Manifiesto no encontrado"}), 404
+
+    if manif["naviera_id"] != user["username"]:
+        conn.close()
+        return jsonify({"error": "No puede anular manifiestos de otra naviera"}), 403
+
+    # Verificar que no tenga turno asociado
+    turno = conn.execute("SELECT id FROM turnos WHERE manifiesto_id = ?", (manif_id,)).fetchone()
+    if turno:
+        conn.close()
+        return jsonify({"error": "No se puede anular un manifiesto que ya posee un turno asociado"}), 400
+
+    conn.execute("UPDATE manifiestos SET estado_documental = 'ANULADO' WHERE id = ?", (manif_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "message": "Manifiesto anulado exitosamente"})
+
+
+# -------------------------------------------------------------
+# API: DECLARACIONES Y LEVANTE ADUANERO (AGENTE / AUTORIDAD)
+# -------------------------------------------------------------
+@app.route("/api/declaraciones", methods=["POST"])
+@login_required
+@require_permission("presentar_declaracion")
+def create_declaracion():
+    data = request.get_json() or {}
+    user = session["user"]
+
+    manifiesto_id = data.get("manifiesto_id")
+    numero_declaracion = data.get("numero_declaracion", "").strip()
+    regimen = data.get("regimen")
+    descripcion_mercancia = data.get("descripcion_mercancia", "").strip()
+    valor_declarado = data.get("valor_declarado")
+    observaciones = data.get("observaciones", "")
+
+    if not manifiesto_id or not numero_declaracion or not regimen or not descripcion_mercancia or valor_declarado is None:
+        return jsonify({"error": "Faltan campos obligatorios"}), 400
+
+    if len(descripcion_mercancia) < 10:
+        return jsonify({"error": "La descripcion de mercancia debe contener minimo 10 caracteres"}), 400
+
+    try:
+        valor_declarado = float(valor_declarado)
+        if valor_declarado <= 0:
+            return jsonify({"error": "El valor declarado debe ser mayor que cero"}), 400
+    except ValueError:
+        return jsonify({"error": "Valor declarado invalido"}), 400
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        c.execute("""
+        INSERT INTO declaraciones (
+            numero_declaracion, manifiesto_id, agente_id, regimen,
+            descripcion_mercancia, valor_declarado, observaciones, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (numero_declaracion, manifiesto_id, user["username"], regimen, descripcion_mercancia, valor_declarado, observaciones, now))
+
+        c.execute("""
+        UPDATE manifiestos SET estado_documental = 'DECLARADO', updated_at = ? WHERE id = ?
+        """, (now, manifiesto_id))
+
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"Error al registrar declaracion: {e}"}), 400
+
+    conn.close()
+    return jsonify({"success": True, "message": "Declaracion de mercancias presentada exitosamente"})
+
+
+@app.route("/api/declaraciones/solicitar-levante", methods=["POST"])
+@login_required
+@require_permission("presentar_declaracion")
+def solicitar_levante():
+    data = request.get_json() or {}
+    manifiesto_id = data.get("manifiesto_id")
+
+    conn = get_db_connection()
+    manif = conn.execute("SELECT * FROM manifiestos WHERE id = ?", (manifiesto_id,)).fetchone()
+    if not manif:
+        conn.close()
+        return jsonify({"error": "Manifiesto no encontrado"}), 404
+
+    if manif["estado_documental"] != "DECLARADO":
+        conn.close()
+        return jsonify({"error": "Solo se puede solicitar levante para manifiestos con declaracion presentada"}), 400
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+    UPDATE manifiestos SET estado_documental = 'LEVANTE_SOLICITADO', updated_at = ? WHERE id = ?
+    """, (now, manifiesto_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "message": "Solicitud de levante enviada a la Autoridad Aduanera"})
+
+
+@app.route("/api/autoridad/resolver-levante", methods=["POST"])
+@login_required
+@require_permission("otorgar_retener_levante")
+def resolver_levante():
+    data = request.get_json() or {}
+    manifiesto_id = data.get("manifiesto_id")
+    decision = data.get("decision")  # 'OTORGAR' o 'RETENER'
+    canal = data.get("canal")  # 'VERDE' o 'ROJO' (obligatorio si OTORGAR)
+    motivo = data.get("motivo", "")
+
+    if not manifiesto_id or decision not in ("OTORGAR", "RETENER"):
+        return jsonify({"error": "Decision invalida"}), 400
+
+    if decision == "OTORGAR" and canal not in ("VERDE", "ROJO"):
+        return jsonify({"error": "Debe seleccionar canal VERDE o ROJO al otorgar levante"}), 400
+
+    if decision == "RETENER" and not motivo:
+        return jsonify({"error": "Debe registrar el motivo de la retencion del levante"}), 400
+
+    conn = get_db_connection()
+    manif = conn.execute("SELECT * FROM manifiestos WHERE id = ?", (manifiesto_id,)).fetchone()
+    if not manif:
+        conn.close()
+        return jsonify({"error": "Manifiesto no encontrado"}), 404
+
+    now = datetime.now(timezone.utc).isoformat()
+    if decision == "OTORGAR":
+        conn.execute("""
+        UPDATE manifiestos
+        SET estado_documental = 'LEVANTE_OTORGADO', canal_selectivo = ?, updated_at = ?
+        WHERE id = ?
+        """, (canal, now, manifiesto_id))
+        conn.commit()
+        conn.close()
+
+        # Notificacion automatica obligatoria al transportista
+        msg_service.notify_levante_otorgado(manif["transportista_id"], manif["contenedor_id"], canal)
+        return jsonify({"success": True, "message": f"Levante otorgado con canal {canal}"})
+    else:
+        conn.execute("""
+        UPDATE manifiestos
+        SET estado_documental = 'LEVANTE_RETENIDO', observaciones = ?, updated_at = ?
+        WHERE id = ?
+        """, (f"Retenido por SAT: {motivo}", now, manifiesto_id))
+        conn.commit()
+        conn.close()
+
+        # Notificacion automatica obligatoria
+        msg_service.notify_levante_retenido(manif["transportista_id"], manif["contenedor_id"], motivo)
+        return jsonify({"success": True, "message": "Levante retenido por Autoridad Aduanera"})
+
+
+# -------------------------------------------------------------
+# API: TURNOS Y OPERACION
+# -------------------------------------------------------------
+@app.route("/api/turnos", methods=["GET"])
+@login_required
+def list_turnos():
+    conn = get_db_connection()
+    estado = request.args.get("estado")
+    tipo = request.args.get("tipo")
+    busqueda = request.args.get("q")
+
+    query = "SELECT * FROM turnos WHERE 1=1"
+    params = []
+
+    if estado:
+        query += " AND estado_actual = ?"
+        params.append(estado)
+    if tipo:
+        query += " AND tipo_operacion = ?"
+        params.append(tipo)
+    if busqueda:
+        query += " AND (placa_vehiculo LIKE ? OR contenedor_id LIKE ? OR codigo_turno LIKE ?)"
+        b_wild = f"%{busqueda}%"
+        params.extend([b_wild, b_wild, b_wild])
+
+    query += " ORDER BY id DESC LIMIT 100"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    turnos_list = []
+    now = datetime.now(timezone.utc)
+    for r in rows:
+        item = dict(r)
+        transcurrido_min = 0
+        try:
+            t_ini = datetime.fromisoformat(item["tiempo_inicio"])
+            t_fin = datetime.fromisoformat(item["tiempo_fin"]) if item["tiempo_fin"] else now
+            transcurrido_min = int((t_fin - t_ini).total_seconds() / 60)
+        except Exception:
+            pass
+        item["tiempo_transcurrido_min"] = transcurrido_min
+        turnos_list.append(item)
+
+    return jsonify(turnos_list)
+
+
+@app.route("/api/turnos/<int:turno_id>/timeline", methods=["GET"])
+@login_required
+def get_timeline(turno_id):
+    timeline = get_turn_timeline(turno_id)
+    return jsonify(timeline)
+
+
+@app.route("/api/turnos/<int:turno_id>/retener-manual", methods=["POST"])
+@login_required
+@require_permission("resolver_retencion_operativa")
+def retener_turno_manual(turno_id):
+    data = request.get_json() or {}
+    observacion = data.get("observacion", "Retencion manual por operador")
+
+    res = assign_retention(turno_id, "RT06", estacion="GARITA", observacion=observacion)
+    if not res:
+        raise_alarm("AL11", origen="servidor", datos={"descripcion": "Parqueo de retencion lleno"})
+        return jsonify({"error": "Parqueo de retencion lleno (3 plazas ocupadas). No se puede enviar el vehiculo a retencion."}), 400
+
+    # Emitir comando AgujaParqueo
+    if mqtt_client:
+        mqtt_client.publish("portus/cmd/solicitud", json.dumps({
+            "comando": "AgujaParqueo", "parametros": {"plaza": res["plaza"]}
+        }))
+
+    return jsonify({"success": True, "retencion": res, "message": f"Turno retenido en plaza {res['plaza']}"})
+
+
+@app.route("/api/turnos/<int:turno_id>/anular", methods=["POST"])
+@login_required
+@require_permission("emitir_comandos_remotos")
+def anular_turno(turno_id):
+    ok = transition_turn(turno_id, "Anulado", estacion="SALIDA", origen="usuario", detalle="Turno anulado manualmente por operador")
+    if not ok:
+        return jsonify({"error": "No se puede anular el turno en su estado actual"}), 400
+    return jsonify({"success": True, "message": "Turno anulado"})
+
+
+# -------------------------------------------------------------
+# API: RETENCIONES Y PARQUEO (3 PLAZAS)
+# -------------------------------------------------------------
+@app.route("/api/retenciones", methods=["GET"])
+@login_required
+def list_retenciones():
+    estado = request.args.get("estado")
+    causa = request.args.get("causa")
+    user_rol = session["user"]["rol"]
+
+    conn = get_db_connection()
+    query = """
+    SELECT r.*, t.codigo_turno, t.placa_vehiculo, t.transportista_id
+    FROM retenciones r
+    JOIN turnos t ON r.turno_id = t.id
+    WHERE 1=1
+    """
+    params = []
+
+    if user_rol == "AUTORIDAD":
+        # Autoridad solo ve retenciones de causa aduanera (RT03 y RT05)
+        query += " AND r.causa IN ('RT03', 'RT05')"
+    elif user_rol == "TERMINAL":
+        pass  # Terminal ve todas en su pestaña de retenciones
+
+    if estado:
+        query += " AND r.estado = ?"
+        params.append(estado)
+    if causa:
+        query += " AND r.causa = ?"
+        params.append(causa)
+
+    query += " ORDER BY r.id DESC"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    now = datetime.now(timezone.utc)
+    results = []
+    for r in rows:
+        item = dict(r)
+        duracion_min = 0
+        try:
+            t_ini = datetime.fromisoformat(item["tiempo_inicio"])
+            t_fin = datetime.fromisoformat(item["tiempo_resolucion"]) if item["tiempo_resolucion"] else now
+            duracion_min = int((t_fin - t_ini).total_seconds() / 60)
+        except Exception:
+            pass
+        item["tiempo_retencion_min"] = duracion_min
+        results.append(item)
+
+    return jsonify(results)
+
+
+@app.route("/api/retenciones/<int:ret_id>/resolver", methods=["POST"])
+@login_required
+def resolve_retention_endpoint(ret_id):
+    data = request.get_json() or {}
+    resolucion = data.get("resolucion")  # 'ACLARAR', 'CORREGIR', 'RECHAZAR'
+    motivo = data.get("motivo_rechazo")
+    observacion = data.get("observacion")
+
+    user = session["user"]
+    res = resolve_retention(ret_id, resolucion, user["username"], user["rol"], motivo, observacion)
+
+    if not res.get("success"):
+        return jsonify({"error": res.get("error")}), 400
+
+    # Comandar AgujaLiberar via MQTT al controlador
+    if mqtt_client:
+        mqtt_client.publish("portus/cmd/solicitud", json.dumps({
+            "comando": "AgujaLiberar",
+            "parametros": {"plaza": res["plaza_liberada"]}
+        }))
+
+    return jsonify(res)
+
+
+# -------------------------------------------------------------
+# API: PATIO Y GRUA
+# -------------------------------------------------------------
+@app.route("/api/patio", methods=["GET"])
+@login_required
+def get_patio():
+    inv = get_yard_inventory()
+    return jsonify(inv)
+
+
+@app.route("/api/patio/posicion/<int:pos>/bloquear", methods=["POST"])
+@login_required
+@require_permission("emitir_comandos_remotos")
+def bloquear_posicion(pos):
+    set_position_blocked(pos, True)
+    if mqtt_client:
+        mqtt_client.publish("portus/cmd/solicitud", json.dumps({
+            "comando": "PosicionBloquear", "parametros": {"posicion": pos}
+        }))
+    return jsonify({"success": True, "message": f"Posicion {pos} bloqueada"})
+
+
+@app.route("/api/patio/posicion/<int:pos>/liberar", methods=["POST"])
+@login_required
+@require_permission("emitir_comandos_remotos")
+def liberar_posicion(pos):
+    set_position_blocked(pos, False)
+    if mqtt_client:
+        mqtt_client.publish("portus/cmd/solicitud", json.dumps({
+            "comando": "PosicionLiberar", "parametros": {"posicion": pos}
+        }))
+    return jsonify({"success": True, "message": f"Posicion {pos} liberada"})
+
+
+@app.route("/api/grua/historial", methods=["GET"])
+@login_required
+def get_grua_history_api():
+    limit = int(request.args.get("limit", 50))
+    hist = get_crane_history(limit)
+    return jsonify(hist)
+
+
+# -------------------------------------------------------------
+# API: ALARMAS (CATALOGO AL01-AL14)
+# -------------------------------------------------------------
+@app.route("/api/alarmas", methods=["GET"])
+@login_required
+def list_alarmas():
+    sev = request.args.get("severidad")
+    alarms = get_alarms(sev)
+    return jsonify(alarms)
+
+
+@app.route("/api/alarmas/<int:alarm_id>/reconocer", methods=["POST"])
+@login_required
+@require_permission("reconocer_alarmas")
+def ack_alarm(alarm_id):
+    data = request.get_json() or {}
+    comentario = data.get("comentario")
+    user = session["user"]["username"]
+    ok = acknowledge_alarm(alarm_id, user, comentario)
+    if not ok:
+        return jsonify({"error": "La alarma no existe o ya fue reconocida"}), 400
+    return jsonify({"success": True, "message": "Alarma reconocida"})
+
+
+@app.route("/api/alarmas/reconocer-todas", methods=["POST"])
+@login_required
+@require_permission("reconocer_alarmas")
+def ack_all_alarms():
+    user = session["user"]["username"]
+    count = acknowledge_all_low_medium(user)
+    return jsonify({"success": True, "reconocidas": count, "message": f"{count} alarmas de severidad baja y media reconocidas"})
+
+
+# -------------------------------------------------------------
+# API: CITAS
+# -------------------------------------------------------------
+@app.route("/api/citas", methods=["GET"])
+@login_required
+def list_citas():
+    conn = get_db_connection()
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    citas = conn.execute("SELECT * FROM citas WHERE fecha = ? ORDER BY hora_inicio ASC", (fecha,)).fetchall()
+    conn.close()
+    return jsonify([dict(c) for c in citas])
+
+
+# -------------------------------------------------------------
+# API: REPORTES Y METRICAS DE CORRIDA
+# -------------------------------------------------------------
+@app.route("/api/reportes/calcular", methods=["GET"])
+@login_required
+@require_permission("generar_reporte_corrida")
+def report_metrics():
+    ini = request.args.get("inicio")
+    fin = request.args.get("fin")
+    metrics = calculate_metrics(ini, fin)
+    return jsonify(metrics)
+
+
+@app.route("/api/reportes/exportar-csv", methods=["POST"])
+@login_required
+@require_permission("generar_reporte_corrida")
+def export_metrics_csv():
+    data = request.get_json() or {}
+    etiqueta = data.get("etiqueta", "Corrida de evaluacion")
+    ini = data.get("inicio")
+    fin = data.get("fin")
+
+    metrics = calculate_metrics(ini, fin)
+    csv_str = export_report_csv(etiqueta, metrics)
+
+    return Response(
+        csv_str,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=reporte_{etiqueta.replace(' ', '_')}.csv"}
+    )
+
+
+# -------------------------------------------------------------
+# API: VINCULACION DE TRANSPORTISTA
+# -------------------------------------------------------------
+@app.route("/api/transportista/generar-codigo", methods=["POST"])
+@login_required
+@require_permission("generar_codigo_vinculacion")
+def gen_binding_code():
+    data = request.get_json() or {}
+    trans_id = data.get("transportista_id")
+    if not trans_id:
+        return jsonify({"error": "Debe especificar el transportista"}), 400
+
+    codigo = generate_binding_code(trans_id, creado_por=session["user"]["username"])
+    return jsonify({"success": True, "codigo": codigo, "expira_en_minutos": 60})
+
+
+@app.route("/api/mensajeria/simulador", methods=["POST"])
+def simular_comando_transportista():
+    """
+    Endpoint para probar interactivamente los 7 comandos del transportista
+    desde un cliente web, consola o emulador de mensajeria.
+    """
+    data = request.get_json() or {}
+    chat_id = data.get("chat_id", "sim_phone_01")
+    texto = data.get("texto", "")
+
+    respuesta = msg_service.process_message(chat_id, texto)
+    return jsonify({"chat_id": chat_id, "respuesta": respuesta})
+
+
+if __name__ == "__main__":
+    init_database()
+    init_mqtt()
+    app.run(host="0.0.0.0", port=5000, debug=False)
