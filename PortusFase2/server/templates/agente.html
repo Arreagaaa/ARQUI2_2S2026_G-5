@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}PORTUS - Interfaz Agente Aduanero ({{ user.nombre_completo }}){% endblock %}
+
+{% block content %}
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('tab-declaraciones')">1. Declaraciones</button>
+  <button class="tab-btn" onclick="switchTab('tab-seguimiento')">2. Seguimiento</button>
+</div>
+
+<!-- ========================================== -->
+<!-- 1. PESTAÑA DECLARACIONES                   -->
+<!-- ========================================== -->
+<div id="tab-declaraciones" class="tab-pane active">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Manifiestos Pendientes de Declaración y Levante Aduanero</span>
+      <button class="btn-cmd" onclick="loadAgenteData()">Actualizar</button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID Manifiesto</th>
+            <th>Contenedor</th>
+            <th>Naviera</th>
+            <th>Tipo Operación</th>
+            <th>Peso Declarado</th>
+            <th>Estado Actual</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-agente-pendientes">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Cargando manifiestos...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 2. PESTAÑA SEGUIMIENTO                     -->
+<!-- ========================================== -->
+<div id="tab-seguimiento" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Seguimiento de Solicitudes de Levante Presentadas</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <select id="filtro-seg-estado" class="form-control" onchange="filterSeguimiento()">
+          <option value="">Todos los estados</option>
+          <option value="LEVANTE_SOLICITADO">Pendientes de Resolución</option>
+          <option value="LEVANTE_OTORGADO">Autorizadas (Levante Otorgado)</option>
+          <option value="LEVANTE_RETENIDO">Retenidas por Autoridad</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Manifiesto</th>
+            <th>Contenedor</th>
+            <th>Estado Levante</th>
+            <th>Canal Asignado</th>
+            <th>Motivo de Retención</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-agente-seguimiento">
+          <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Cargando seguimiento...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRESENTAR DECLARACION -->
+<div id="modalDeclaracion" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="panel-title">Presentar Declaración de Mercancías</span>
+      <button class="btn-cmd" onclick="closeModal('modalDeclaracion')">Cerrar</button>
+    </div>
+    <form id="formDeclaracion" onsubmit="submitDeclaracion(event)">
+      <input type="hidden" id="dec-manifiesto-id">
+      <div class="form-group">
+        <label>Número de Declaración (Único en el sistema):</label>
+        <input type="text" id="dec-numero" class="form-control" style="width: 100%;" placeholder="Ej: DEC-2026-001" required>
+      </div>
+      <div class="form-group">
+        <label>Régimen Aduanero:</label>
+        <select id="dec-regimen" class="form-control" style="width: 100%;" required>
+          <option value="Importacion definitiva">Importación definitiva</option>
+          <option value="Deposito temporal">Depósito temporal</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Descripción de la Mercancía (Mínimo 10 caracteres):</label>
+        <input type="text" id="dec-desc" class="form-control" style="width: 100%;" placeholder="Ej: Mercadería general textil en rollos..." minlength="10" required>
+      </div>
+      <div class="form-group">
+        <label>Valor Declarado (USD, número > 0):</label>
+        <input type="number" id="dec-valor" class="form-control" style="width: 100%;" placeholder="Ej: 45000" min="1" step="0.01" required>
+      </div>
+      <div class="form-group">
+        <label>Observaciones documentales para la Autoridad (Opcional):</label>
+        <input type="text" id="dec-obs" class="form-control" style="width: 100%;">
+      </div>
+      <div class="modal-footer">
+        <button type="submit" class="btn-cmd">Presentar Declaración</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    loadAgenteData();
+  });
+</script>
+{% endblock %}

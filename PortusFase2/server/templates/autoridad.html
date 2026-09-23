@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}PORTUS - Interfaz Autoridad Aduanera (SAT){% endblock %}
+
+{% block content %}
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('tab-solicitudes')">1. Solicitudes de Levante</button>
+  <button class="tab-btn" onclick="switchTab('tab-ret-aduaneras')">2. Retenciones Aduaneras</button>
+  <button class="tab-btn" onclick="switchTab('tab-consulta-carga')">3. Consulta de Carga</button>
+</div>
+
+<!-- ========================================== -->
+<!-- 1. PESTAÑA SOLICITUDES DE LEVANTE          -->
+<!-- ========================================== -->
+<div id="tab-solicitudes" class="tab-pane active">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Bandeja de Solicitudes de Levante Aduanero</span>
+      <button class="btn-cmd" onclick="loadAutoridadData()">Actualizar</button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID Manifiesto</th>
+            <th>Contenedor</th>
+            <th>Naviera</th>
+            <th>Transportista</th>
+            <th>Peso Decl.</th>
+            <th>Estado Documental</th>
+            <th>Acciones de Autoridad</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-autoridad-solicitudes">
+          <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Cargando solicitudes...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 2. PESTAÑA RETENCIONES ADUANERAS           -->
+<!-- ========================================== -->
+<div id="tab-ret-aduaneras" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Retenciones de Origen Aduanero (Canal Rojo / Documental)</span>
+      <button class="btn-cmd" onclick="loadRetencionesAduaneras()">Actualizar</button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID Retención</th>
+            <th>Turno / Placa</th>
+            <th>Contenedor</th>
+            <th>Causa</th>
+            <th>Estación</th>
+            <th>Plaza</th>
+            <th>Tiempo Retenido</th>
+            <th>Estado</th>
+            <th>Resolución (Aduana)</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-autoridad-retenciones">
+          <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Sin retenciones aduaneras abiertas</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 3. PESTAÑA CONSULTA DE CARGA               -->
+<!-- ========================================== -->
+<div id="tab-consulta-carga" class="tab-pane">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Consulta General de Carga de la Terminal (Sin restricción de naviera)</span>
+      <div class="filter-bar" style="margin-bottom: 0;">
+        <input type="text" id="filtro-carga-q" class="form-control" placeholder="Buscar por contenedor / naviera..." oninput="filterConsultaCarga()">
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Contenedor</th>
+            <th>Naviera</th>
+            <th>Ubicación en Patio</th>
+            <th>Peso Oficial</th>
+            <th>Autorización</th>
+            <th>Reloj de Permanencia</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-autoridad-carga">
+          <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Cargando inventario de carga...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RESOLVER LEVANTE -->
+<div id="modalResolverLevante" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="panel-title" id="levanteModalTitle">Resolución de Levante Aduanero</span>
+      <button class="btn-cmd" onclick="closeModal('modalResolverLevante')">Cerrar</button>
+    </div>
+    <div id="levanteDetalleBox" style="font-size: 13px; margin-bottom: 16px;"></div>
+
+    <div class="form-group" id="groupCanalSelectivo">
+      <label>Asignación Obligatoria de Canal Selectivo:</label>
+      <select id="selCanalSelectivo" class="form-control" style="width: 100%;">
+        <option value="VERDE">VERDE (Levante inmediato hacia transferencia)</option>
+        <option value="ROJO">ROJO (Verificación física obligatoria en parqueo)</option>
+      </select>
+    </div>
+
+    <div class="form-group" id="groupMotivoRetencion" style="display: none;">
+      <label>Motivo de la retención del levante:</label>
+      <input type="text" id="inputMotivoRetencion" class="form-control" style="width: 100%;" placeholder="Ej: Inconsistencia arancelaria en descripción...">
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-cmd" onclick="submitLevanteDecision('OTORGAR')" id="btnOtorgarLevante">Otorgar Levante</button>
+      <button class="btn-cmd danger" onclick="submitLevanteDecision('RETENER')" id="btnRetenerLevante">Retener Levante</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    loadAutoridadData();
+    loadRetencionesAduaneras();
+  });
+</script>
+{% endblock %}
