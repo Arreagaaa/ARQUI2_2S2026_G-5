@@ -1,7 +1,7 @@
 # PORTUS Fase 2 - Estado del Proyecto
 
-Fecha: 2026-09-22
-Version: 1.0.0
+Fecha: 2026-09-23
+Version: 1.1.0
 Estado: En desarrollo activo
 
 ---
@@ -160,6 +160,7 @@ PORTUS Fase 2 integra la maqueta fisica con una plataforma digital completa ejec
 | Pestaña Grua y metricas de ciclo | Completado | Cola, historial de fallas y exportacion |
 | Pestaña Alarmas (AL01-AL14 con reconocimiento manual) | Completado | Filtros y reconocimiento individual/masivo |
 | Interfaces NAVIERA, AGENTE, AUTORIDAD | Completado | Cadena de levante y selectivo rojo/verde |
+| SPA React (nueva interfaz visual) | Completado | `pnpm dev` / `pnpm build` en `PortusFase2/frontend` |
 | Pestaña Citas y agenda en franjas de 15 min | Completado | Validacion de franjas y ventanas |
 | Pestaña Reportes con 8 metricas y exportacion CSV | Completado | Calculo de indicadores de corrida |
 | Canal de mensajeria de Transportista (7 comandos, 9 avisos) | Completado | `python PortusFase2/mensajeria/messaging_service.py` |
@@ -189,3 +190,115 @@ PORTUS Fase 2 integra la maqueta fisica con una plataforma digital completa ejec
 
 6. **Aislamiento estricto de datos:**
    Las navieras unicamente pueden ver y operar sus propios manifiestos y contenedores. Los transportistas solo pueden consultar la carga que tienen asignada. Cualquier intento de consulta no autorizada es bloqueado en la capa de aplicacion y base de datos, retornando error explicito.
+
+---
+
+## 7. Sesion 2026-09-23 - Migracion de interfaces a SPA React
+
+### 7.1 Decision: vanilla JS / Jinja2 -> React + TypeScript + Vite + Tailwind
+
+Se empezo la sesion contemplando el uso de JavaScript vanilla sobre las vistas Jinja2 existentes. Se revirtio esa decision de forma consciente una vez que el alcance funcional del backend estaba cubierto (mas del 70%): con la logica de negocio ya lista, el tiempo restante conviene invertirlo en calidad visual y mantenibilidad de la UI, no en DOM manual. La SPA nueva no reemplaza la logica del servidor; consume exactamente los mismos endpoints REST y el mismo stream SSE.
+
+- **Framework:** React 18 + TypeScript 5 + Vite 5 + Tailwind CSS 3
+- **Gestor de paquetes:** pnpm (no npm). En `pnpm-workspace.yaml` se aprobo el build de `esbuild` (`allowBuilds`).
+- **Routing:** react-router-dom 6, rutas anidadas bajo `AppShell` (cabecera permanente + pestañas por rol).
+- **Tiempo real:** `EventSource` nativo sobre `/api/stream/events` (hook `useSinopticoStream`). El sinoptico se actualiza **solo por suscripcion SSE**; queda prohibido el polling a la base de datos.
+- **HTTP:** `fetch` nativo con wrapper propio (`src/api/client.ts`); sin axios.
+- **Iconografia:** lucide-react. Cero emojis en la UI.
+- **Graficas:** recharts (metricas de ciclo de grua y reportes).
+
+### 7.2 Diseno visual elegido y por que
+
+Estetica de panel NOC / centro de control industrial: densa, legible en sala de operaciones, estados inequivocos.
+
+| Elemento | Eleccion | Motivo |
+|----------|----------|--------|
+| Acento | Cian `#0EA5E9` | Asociacion a senal informativa/de enlace; contraste alto sobre fondos oscuros |
+| Fondos | `#0A0E14` / `#111823` / `#18212F` | Tres niveles de superficie (pagina, panel, elevado) sin glassmorphism |
+| Estados | Verde `#22C55E`, ambar `#F59E0B`, rojo `#EF4444`, gris `#6B7280` | Semantica invariante en todo el producto; misma codificacion que el semaforo de la maqueta |
+| Tipografia | Inter (UI) + JetBrains Mono (IDs tecnicos) | Inter para lectura rapida; monoespaciada para manifiestos, contenedores y codigos de alarma |
+| Modo | Oscuro por defecto | Reduce fatiga visual en operacion continua; no se implemento toggle claro (fuera de alcance de la sesion) |
+
+Reglas aplicadas: sin gradientes decorativos, sin glassmorphism, sin tarjetas flotantes innecesarias; tablas y paneles densos con jerarquia tipografica clara.
+
+### 7.3 Estado de cada pantalla
+
+| Pantalla (ruta) | Rol | Estado | Notas |
+|-----------------|-----|--------|-------|
+| Login `/login` | todos | Completa | POST `/api/login`, redirige por rol via `/api/me` |
+| Operacion `/terminal/operacion` | TERMINAL | Completa | Sinoptico SVG + comandos remotos; datos solo de SSE |
+| Turnos `/terminal/turnos` | TERMINAL | Completa | Tabla + linea de tiempo por turno |
+| Retenciones `/terminal/retenciones` | TERMINAL | Completa | Plazas reales desde retenciones ABIERTAS (ver gap 7.6) |
+| Patio `/terminal/patio` | TERMINAL | Completa | Inventario 2 niveles x posiciones, bloqueos |
+| Grua `/terminal/grua` | TERMINAL | Completa | Cola, historial, metricas recharts |
+| Alarmas `/terminal/alarmas` | TERMINAL | Completa | Filtros severidad/estado, ACK individual y masivo |
+| Citas `/terminal/citas` | TERMINAL | **Parcial** | Agenda read-only; acciones de gestion deshabilitadas (gap 7.6) |
+| Reportes `/terminal/reportes` | TERMINAL | Completa | 8 metricas + export CSV |
+| Manifiestos | NAVIERA | Completa | Aislamiento por naviera en servidor |
+| Mis contenedores | NAVIERA | Completa | Filtro por naviera en sesion |
+| Declaraciones | AGENTE | Completa | Alta de declaracion |
+| Seguimiento | AGENTE | Completa | Estado documental |
+| Levante | AUTORIDAD | Completa | Canal verde/rojo, solicitar levante |
+| Retenciones aduaneras | AUTORIDAD | Completa | Acciones de autoridad |
+| Consulta de carga | AUTORIDAD | Completa | Vision transversal |
+
+Pestaña **Transportista**: no aplica web (solo canal de mensajeria), segun el enunciado.
+
+### 7.4 Comandos de ejecucion
+
+```bash
+# Desarrollo (proxy /api -> Flask :5000)
+cd PortusFase2/frontend
+pnpm install
+pnpm dev          # http://localhost:5173
+
+# Build de produccion (tsc + vite build -> frontend/dist)
+pnpm build
+
+# Backend completo (Flask en :5000, sirve dist si existe)
+cd ..   # PortusFase2
+run_fase2.bat
+# o: python PortusFase2/run_fase2.py --mock
+```
+
+En desarrollo se usa la SPA en 5173 con proxy. En produccion, Flask sirve `frontend/dist` (catch-all de rutas de navegacion y assets). No se uso `flask-cors`: el proxy de Vite y el same-origin de Flask eliminan la necesidad. `requirements.txt` sin cambios.
+
+### 7.5 Archivos backend tocados (aditivos, en `PortusFase2/server/app.py`)
+
+| Cambio | Lineas aprox. | Por que |
+|--------|---------------|---------|
+| Import `send_from_directory` | ~20 | Servir `frontend/dist` |
+| Constante `FRONTEND_DIST` | ~17-18 | Ruta al build de la SPA |
+| `_servir_spa_si_existe()` | junto a rutas de navegacion | Las vistas Jinja2 `/`, `/login`, `/terminal`, etc. sirven el index de React si el build existe; si no, conservan el comportamiento original |
+| `GET /api/me` | ~90 | La SPA restaura usuario+rol tras recargar (sin el, habria que reloguear) |
+| `GET /api/transportistas` | ~420 | Combo de transportistas en formularios (turnos/citas) |
+| `GET /api/catalogo/contenedores` | ~430 | Catalogo de tipos/tara de contenedores |
+| `GET /api/declaraciones` | ~450 | Listado (opcional `?manifiesto_id=`) para el AGENTE; el POST original no se toco |
+| `POST/GET /api/logout` Accept JSON | ~85 | La SPA necesita `{"success":true}` en vez de redirect a Jinja |
+| Catch-all `/<path:ruta_spa>` | final de rutas | Rutas del cliente (`/terminal/operacion`, assets de Vite) y 404 JSON bajo `/api/*` |
+
+**No se tocaron:** `auth.py`, `turn_manager.py`, `retention_manager.py`, `alarm_manager.py`, `yard_crane_manager.py`, `metrics.py`, `database.py`, firmware Fase 1, `mensajeria/`. La matriz de permisos y los decoradores siguen siendo la unica autorizacion de rol.
+
+### 7.6 Gaps conocidos (pendientes de backend, no de UI)
+
+1. **Citas mutables:** solo existe `GET /api/citas?fecha=`. No hay endpoints para cancelar, reprogramar ni bloquear franjas. En la UI esas acciones estan **deshabilitadas** con tooltip "Pendiente de endpoint en el backend".
+2. **Creacion de turnos:** no hay `POST /api/turnos` en `app.py` (solo se usa desde tests). El alta de turnos desde la UI quedaria inerte hasta agregar ese endpoint.
+3. **Campo `parqueo` del SSE:** `terminal_state` nunca actualiza `parqueo` desde el retention manager. La fuente real de plazas ocupadas es `GET /api/retenciones?estado=ABIERTA`, refrescada al recibir topics SSE relacionados (no por polling).
+
+### 7.7 Limpieza de interfaz Jinja2 (misma sesion)
+
+Se eliminaron los artefactos de la UI anterior ya reemplazada por React:
+
+| Eliminado | Motivo |
+|-----------|--------|
+| `PortusFase2/server/templates/` (base, login, terminal, naviera, agente, autoridad) | Solo las usaba Flask con `render_template`; la SPA las sustituye |
+| `PortusFase2/server/static/` (`js/app.js`, `js/realtime.js`, `css/style.css`) | Assets de esas templates |
+| `__pycache__/` y `*.pyc` en disco (ademas del untrack en git) | Artefactos de Python |
+
+En `app.py` se quitaron `render_template`, `template_folder` y `static_folder` (`static_folder=None`). Las rutas de navegacion (`/`, `/login`, `/terminal`, …) sirven `frontend/dist`; si no hay build responden `503` con la instruccion `pnpm build`. La autorizacion por rol en la API no cambio.
+
+### 7.8 Verificacion de la sesion
+
+- `pnpm build`: **OK** (`tsc` sin errores + Vite bundle `dist/`).
+- Import de `PortusFase2.server.app`: **OK**; rutas nuevas presentes en `url_map`.
+- Smoke con `app.test_client()`: `/api/me`, logout JSON, transportistas, catalogo, declaraciones, serve de `/`, `/login`, `/terminal/operacion` y assets desde `dist` responden 200 con el contenido esperado; `/api/*` inexistente responde 404 JSON.
