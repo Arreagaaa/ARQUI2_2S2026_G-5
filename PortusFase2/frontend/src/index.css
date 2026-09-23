@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-base text-ink antialiased;
+  }
+  body {
+    @apply font-sans text-sm;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-base;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-line rounded border-2 border-base;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-line2;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full bg-base border border-line rounded px-2.5 py-1.5 text-sm text-ink
+      placeholder:text-inkfaint focus:outline-none focus:border-accent focus:ring-1
+      focus:ring-accent/40 transition-colors;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded px-3 py-1.5
+      text-xs font-medium transition-colors select-none disabled:opacity-40
+      disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-base hover:bg-accent-hover;
+  }
+  .btn-ghost {
+    @apply btn bg-surface2 text-inkdim border border-line hover:text-ink hover:border-line2;
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:bg-danger/85;
+  }
+  .btn-ok {
+    @apply btn bg-ok text-base hover:bg-ok/85;
+  }
+  .label {
+    @apply block text-2xs font-medium uppercase tracking-wider text-inkfaint mb-1;
+  }
+}

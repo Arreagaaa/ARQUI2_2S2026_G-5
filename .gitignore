@@ -1,0 +1,38 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---- Node / Vite / pnpm ----
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ---- Artefactos de ejecucion / secrets ----
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Logs y temporales ----
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+tmp/
+temp/
+.DS_Store
+Thumbs.db
+
+# ---- IDE / editores ----
+.vscode/
+.idea/
+*.swp
+*.swo

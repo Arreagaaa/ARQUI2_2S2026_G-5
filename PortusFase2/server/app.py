@@ -14,7 +14,10 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response
+# Ruta absoluta al build de la SPA React (frontend/dist) para el modo produccion.
+FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
+
+from flask import Flask, request, jsonify, session, redirect, url_for, Response, send_from_directory
 import paho.mqtt.client as mqtt
 
 from .database import get_db_connection, init_database
@@ -33,7 +36,7 @@ from ..mensajeria.messaging_service import TransportistaMessagingService, genera
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-app = Flask(__name__, template_folder="templates", static_folder="static")
+app = Flask(__name__, static_folder=None)
 app.secret_key = "portus_secret_key_usac_arqui2_2026"
 
 # Colas de transmision en tiempo real para clientes SSE conectados
@@ -169,27 +172,37 @@ def init_mqtt():
 # -------------------------------------------------------------
 # RUTAS DE AUTENTICACION Y NAVEGACION
 # -------------------------------------------------------------
+def _servir_spa_si_existe():
+    """Sirve el index de la SPA React si frontend/dist ya fue construido."""
+    indice = os.path.join(FRONTEND_DIST, "index.html")
+    if os.path.isfile(indice):
+        return send_from_directory(FRONTEND_DIST, "index.html")
+    return None
+
+
+def _spa_no_construida():
+    """Respuesta cuando no hay build de React (olvido de `pnpm build`)."""
+    return (
+        "Frontend React no construido. Ejecute: cd PortusFase2/frontend && pnpm install && pnpm build",
+        503,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
 @app.route("/")
 def index():
-    if "user" not in session:
-        return redirect(url_for("login_page"))
-    rol = session["user"]["rol"]
-    if rol == "TERMINAL":
-        return redirect(url_for("view_terminal"))
-    elif rol == "NAVIERA":
-        return redirect(url_for("view_naviera"))
-    elif rol == "AGENTE":
-        return redirect(url_for("view_agente"))
-    elif rol == "AUTORIDAD":
-        return redirect(url_for("view_autoridad"))
-    return redirect(url_for("login_page"))
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 @app.route("/login")
 def login_page():
-    if "user" in session:
-        return redirect(url_for("index"))
-    return render_template("login.html")
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 @app.route("/api/login", methods=["POST"])
@@ -216,42 +229,60 @@ def api_login():
 @app.route("/api/logout", methods=["POST", "GET"])
 def api_logout():
     session.clear()
+    # La SPA React pide sesion JSON; las vistas Jinja2 antiguas conservan el redirect.
+    if request.headers.get("Accept", "").find("application/json") >= 0 or request.is_json:
+        return jsonify({"success": True})
     return redirect(url_for("login_page"))
 
 
+@app.route("/api/me")
+def api_me():
+    """
+    Devuelve el usuario en sesion para que la SPA React restaure su contexto
+    tras recargar la pagina. Sin sesion valida responde user: null.
+    """
+    user = session.get("user")
+    return jsonify({"user": user})
+
+
 # -------------------------------------------------------------
-# VISTAS POR ROL CON SUS PESTAÑAS OBLIGATORIAS
+# RUTAS DE NAVEGACION POR ROL (sirven la SPA; el control de rol
+# de cada pestaña sigue vivo en la matriz de permisos de la API)
 # -------------------------------------------------------------
 @app.route("/terminal")
 @login_required
 def view_terminal():
-    if session["user"]["rol"] != "TERMINAL":
-        return "Acceso denegado: esta interfaz es exclusiva del rol TERMINAL", 403
-    return render_template("terminal.html", user=session["user"])
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 @app.route("/naviera")
 @login_required
 def view_naviera():
-    if session["user"]["rol"] != "NAVIERA":
-        return "Acceso denegado: esta interfaz es exclusiva del rol NAVIERA", 403
-    return render_template("naviera.html", user=session["user"])
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 @app.route("/agente")
 @login_required
 def view_agente():
-    if session["user"]["rol"] != "AGENTE":
-        return "Acceso denegado: esta interfaz es exclusiva del rol AGENTE", 403
-    return render_template("agente.html", user=session["user"])
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 @app.route("/autoridad")
 @login_required
 def view_autoridad():
-    if session["user"]["rol"] != "AUTORIDAD":
-        return "Acceso denegado: esta interfaz es exclusiva del rol AUTORIDAD", 403
-    return render_template("autoridad.html", user=session["user"])
+    spa = _servir_spa_si_existe()
+    if spa is not None:
+        return spa
+    return _spa_no_construida()
 
 
 # -------------------------------------------------------------
@@ -433,8 +464,48 @@ def anular_manifiesto(manif_id):
 
 
 # -------------------------------------------------------------
+# API: CATALOGOS PARA FORMULARIOS DE LA SPA
+# -------------------------------------------------------------
+@app.route("/api/transportistas")
+@login_required
+def list_transportistas():
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT username, nombre_completo FROM usuarios WHERE rol = 'TRANSPORTISTA' ORDER BY username"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/catalogo/contenedores")
+@login_required
+def list_catalogo_contenedores():
+    conn = get_db_connection()
+    rows = conn.execute("SELECT id, tipo, tara_g FROM catalogo_contenedores ORDER BY id").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+# -------------------------------------------------------------
 # API: DECLARACIONES Y LEVANTE ADUANERO (AGENTE / AUTORIDAD)
 # -------------------------------------------------------------
+@app.route("/api/declaraciones", methods=["GET"])
+@login_required
+@require_permission("ver_manifiesto_completo")
+def list_declaraciones():
+    manifiesto_id = request.args.get("manifiesto_id")
+    conn = get_db_connection()
+    if manifiesto_id:
+        rows = conn.execute(
+            "SELECT * FROM declaraciones WHERE manifiesto_id = ? ORDER BY id DESC",
+            (manifiesto_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM declaraciones ORDER BY id DESC").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
 @app.route("/api/declaraciones", methods=["POST"])
 @login_required
 @require_permission("presentar_declaracion")
@@ -875,6 +946,31 @@ def simular_comando_transportista():
 
     respuesta = msg_service.process_message(chat_id, texto)
     return jsonify({"chat_id": chat_id, "respuesta": respuesta})
+
+
+# -------------------------------------------------------------
+# SERVICIO DE LA SPA REACT (modo produccion: frontend/dist)
+# -------------------------------------------------------------
+@app.route("/<path:ruta_spa>")
+def servir_spa(ruta_spa):
+    """
+    En produccion la SPA se sirve desde frontend/dist. Las rutas /api/* ya
+    fueron registradas con prioridad por Flask, asi que no se interceptan.
+    En desarrollo (Vite en 5173 con proxy) esta ruta no se usa.
+    """
+    if ruta_spa.startswith("api/"):
+        return jsonify({"error": "Recurso no encontrado"}), 404
+
+    indice = os.path.join(FRONTEND_DIST, "index.html")
+    if not os.path.isfile(indice):
+        return _spa_no_construida()
+
+    # Rutas del cliente como /terminal/operacion resuelven el index.html
+    # salvo que el archivo exista fisicamente (assets de Vite).
+    archivo = os.path.join(FRONTEND_DIST, ruta_spa)
+    if os.path.isfile(archivo):
+        return send_from_directory(FRONTEND_DIST, ruta_spa)
+    return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 if __name__ == "__main__":
