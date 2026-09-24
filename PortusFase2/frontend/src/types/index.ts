@@ -183,6 +183,15 @@ export interface Cita {
   created_at: string
 }
 
+export interface FranjaBloqueada {
+  id: number
+  fecha: string
+  hora_inicio: string
+  hora_fin: string
+  creado_por: string
+  created_at: string
+}
+
 export interface Metricas {
   remociones_por_contenedor_retirado: number
   ciclos_grua_por_operacion: number

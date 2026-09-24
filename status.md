@@ -1,8 +1,8 @@
 # PORTUS Fase 2 - Estado del Proyecto
 
 Fecha: 2026-09-23
-Version: 1.1.0
-Estado: En desarrollo activo
+Version: 1.2.0
+Estado: Software funcional validado; pendiente integracion final con maqueta fisica
 
 ---
 
@@ -232,7 +232,7 @@ Reglas aplicadas: sin gradientes decorativos, sin glassmorphism, sin tarjetas fl
 | Patio `/terminal/patio` | TERMINAL | Completa | Inventario 2 niveles x posiciones, bloqueos |
 | Grua `/terminal/grua` | TERMINAL | Completa | Cola, historial, metricas recharts |
 | Alarmas `/terminal/alarmas` | TERMINAL | Completa | Filtros severidad/estado, ACK individual y masivo |
-| Citas `/terminal/citas` | TERMINAL | **Parcial** | Agenda read-only; acciones de gestion deshabilitadas (gap 7.6) |
+| Citas `/terminal/citas` | TERMINAL | Completa | Agenda con cancelar, reprogramar, bloquear y desbloquear franjas |
 | Reportes `/terminal/reportes` | TERMINAL | Completa | 8 metricas + export CSV |
 | Manifiestos | NAVIERA | Completa | Aislamiento por naviera en servidor |
 | Mis contenedores | NAVIERA | Completa | Filtro por naviera en sesion |
@@ -279,11 +279,12 @@ En desarrollo se usa la SPA en 5173 con proxy. En produccion, Flask sirve `front
 
 **No se tocaron:** `auth.py`, `turn_manager.py`, `retention_manager.py`, `alarm_manager.py`, `yard_crane_manager.py`, `metrics.py`, `database.py`, firmware Fase 1, `mensajeria/`. La matriz de permisos y los decoradores siguen siendo la unica autorizacion de rol.
 
-### 7.6 Gaps conocidos (pendientes de backend, no de UI)
+### 7.6 Gaps cerrados en la sesion final
 
-1. **Citas mutables:** solo existe `GET /api/citas?fecha=`. No hay endpoints para cancelar, reprogramar ni bloquear franjas. En la UI esas acciones estan **deshabilitadas** con tooltip "Pendiente de endpoint en el backend".
-2. **Creacion de turnos:** no hay `POST /api/turnos` en `app.py` (solo se usa desde tests). El alta de turnos desde la UI quedaria inerte hasta agregar ese endpoint.
-3. **Campo `parqueo` del SSE:** `terminal_state` nunca actualiza `parqueo` desde el retention manager. La fuente real de plazas ocupadas es `GET /api/retenciones?estado=ABIERTA`, refrescada al recibir topics SSE relacionados (no por polling).
+1. **Citas mutables:** implementados `POST /api/citas/<id>/cancelar`, `POST /api/citas/<id>/reprogramar`, `POST /api/citas/bloquear-franja`, `POST /api/citas/desbloquear-franja` y `GET /api/citas/franjas-bloqueadas`. La UI de Citas ya permite cancelar, reprogramar, bloquear y desbloquear franjas con validacion del servidor.
+2. **Creacion de turnos:** implementado `POST /api/turnos` con validacion de vehiculo, manifiesto, levante otorgado, pertenencia del transportista, ventana de cita, RT04 por llegada fuera de ventana y rechazo AL11 por parqueo lleno.
+3. **Campo `parqueo` del SSE:** `terminal_state['parqueo']` se sincroniza con el retention manager al iniciar el stream, al recibir latidos y al crear o resolver retenciones.
+4. **Contrato frontend/backend:** corregido el consumo de `GET /api/transportistas` y `GET /api/catalogo/contenedores` en la SPA para usar los arreglos reales devueltos por Flask.
 
 ### 7.7 Limpieza de interfaz Jinja2 (misma sesion)
 
@@ -302,3 +303,10 @@ En `app.py` se quitaron `render_template`, `template_folder` y `static_folder` (
 - `pnpm build`: **OK** (`tsc` sin errores + Vite bundle `dist/`).
 - Import de `PortusFase2.server.app`: **OK**; rutas nuevas presentes en `url_map`.
 - Smoke con `app.test_client()`: `/api/me`, logout JSON, transportistas, catalogo, declaraciones, serve de `/`, `/login`, `/terminal/operacion` y assets desde `dist` responden 200 con el contenido esperado; `/api/*` inexistente responde 404 JSON.
+- `py -3.13 -m unittest discover -s tests -v`: **OK**, 17 pruebas API/integracion.
+- `py -3.13 tests\\validate_scenarios.py -v`: **OK**, cobertura logica de E01 a E15.
+- `pnpm exec playwright test tests/playwright_smoke.spec.js --browser=chromium --reporter=line`: **OK**, login y navegacion real en Chromium para TERMINAL y carga de catalogos NAVIERA.
+
+### 7.9 Estado real pendiente
+
+El software queda funcionalmente cerrado a nivel de servidor, API, SPA, mensajeria simulada, permisos, agenda, retenciones, reportes y pruebas automatizadas. Lo pendiente para declarar la Fase 2 completa al 100% es integracion fisica con la maqueta: enlace serial real con Arduino, Mosquitto en la Raspberry Pi, validacion de comandos contra sensores/actuadores reales, demostracion de perdida de comunicacion y conciliacion de inventario fisico.
