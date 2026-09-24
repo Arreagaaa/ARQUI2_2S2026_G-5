@@ -12,7 +12,7 @@ import time
 import queue
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # Ruta absoluta al build de la SPA React (frontend/dist) para el modo produccion.
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
@@ -74,6 +74,38 @@ msg_service = TransportistaMessagingService()
 mqtt_client: mqtt.Client = None
 
 
+def _refresh_parqueo_state():
+    """
+    Sincroniza terminal_state['parqueo'] con el retention manager (fuente real
+    de las plazas ocupadas). Cada plaza ocupada expone vehiculo, turno, causa
+    y tiempo de retencion transcurrido, tal como exige el sinoptico.
+    """
+    try:
+        ocupacion = get_parking_occupancy()
+        now = datetime.now(timezone.utc)
+        parqueo = {}
+        for plaza, ret in ocupacion.items():
+            if ret is None:
+                parqueo[plaza] = None
+                continue
+            retencion_min = 0
+            try:
+                t_ini = datetime.fromisoformat(ret["tiempo_inicio"])
+                retencion_min = int((now - t_ini).total_seconds() / 60)
+            except Exception:
+                pass
+            parqueo[plaza] = {
+                "vehiculo": ret["placa_vehiculo"],
+                "codigo_turno": ret["codigo_turno"],
+                "codigo_retencion": ret["codigo_retencion"],
+                "causa": ret["causa"],
+                "tiempo_retencion_min": retencion_min
+            }
+        terminal_state["parqueo"] = parqueo
+    except Exception as e:
+        logging.error("No se pudo refrescar el estado del parqueo: %s", e)
+
+
 def dispatch_event_to_sse(event_data: dict):
     with event_queues_lock:
         dead_queues = []
@@ -113,6 +145,8 @@ def on_mqtt_message(client, userdata, msg):
                 terminal_state["grua"]["suspendida"] = (datos.get("grua_susp") == "SI")
                 terminal_state["grua"]["referenciada"] = (datos.get("grua_ref") == "SI")
                 terminal_state["grua"]["en_falla"] = (datos.get("grua_falla") == "SI")
+                # El latido mantiene el parqueo del sinoptico alineado sin polling al navegador
+                _refresh_parqueo_state()
 
         elif topic == "portus/evt/garita":
             tipo_ev = data.get("tipo")
@@ -296,7 +330,8 @@ def sse_events():
         with event_queues_lock:
             event_queues.append(q)
 
-        # Enviar estado inicial completo de inmediato
+        # Enviar estado inicial completo de inmediato (con parqueo sincronizado)
+        _refresh_parqueo_state()
         init_payload = json.dumps({"topic": "portus/init", "state": terminal_state})
         yield f"data: {init_payload}\n\n"
 
@@ -694,7 +729,7 @@ def get_timeline(turno_id):
 @login_required
 @require_permission("resolver_retencion_operativa")
 def retener_turno_manual(turno_id):
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     observacion = data.get("observacion", "Retencion manual por operador")
 
     res = assign_retention(turno_id, "RT06", estacion="GARITA", observacion=observacion)
@@ -708,6 +743,18 @@ def retener_turno_manual(turno_id):
             "comando": "AgujaParqueo", "parametros": {"plaza": res["plaza"]}
         }))
 
+    # Notificacion automatica obligatoria al transportista dueño del turno
+    conn = get_db_connection()
+    turno = conn.execute("SELECT * FROM turnos WHERE id = ?", (turno_id,)).fetchone()
+    conn.close()
+    if turno:
+        aviso = msg_service.notify_vehiculo_retenido(
+            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"], "RT06"
+        )
+        logging.info("Notificacion a transportista: %s", aviso)
+
+    _refresh_parqueo_state()
+    dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionCreada", "datos": res}})
     return jsonify({"success": True, "retencion": res, "message": f"Turno retenido en plaza {res['plaza']}"})
 
 
@@ -718,6 +765,18 @@ def anular_turno(turno_id):
     ok = transition_turn(turno_id, "Anulado", estacion="SALIDA", origen="usuario", detalle="Turno anulado manualmente por operador")
     if not ok:
         return jsonify({"error": "No se puede anular el turno en su estado actual"}), 400
+
+    conn = get_db_connection()
+    turno = conn.execute("SELECT * FROM turnos WHERE id = ?", (turno_id,)).fetchone()
+    conn.close()
+    if turno:
+        aviso = msg_service.notify_turno_anulado(
+            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
+            "Anulacion manual por operador de terminal"
+        )
+        logging.info("Notificacion a transportista: %s", aviso)
+    dispatch_event_to_sse({"topic": "portus/evt/turnos", "data": {"tipo": "TurnoAnulado", "datos": {"turno_id": turno_id}}})
+
     return jsonify({"success": True, "message": "Turno anulado"})
 
 
@@ -795,6 +854,22 @@ def resolve_retention_endpoint(ret_id):
             "parametros": {"plaza": res["plaza_liberada"]}
         }))
 
+    # Regla obligatoria: toda resolucion notifica al transportista propietario
+    conn = get_db_connection()
+    turno = conn.execute("SELECT * FROM turnos WHERE id = ?", (res["turno_id"],)).fetchone()
+    ret = conn.execute("SELECT * FROM retenciones WHERE id = ?", (ret_id,)).fetchone()
+    conn.close()
+    if turno and ret:
+        aviso = msg_service.notify_retencion_resuelta(
+            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
+            resolucion,
+            nuevo_peso=ret["peso_medido_g"] if resolucion == "CORREGIR" else None,
+            motivo=motivo if resolucion == "RECHAZAR" else None
+        )
+        logging.info("Notificacion a transportista: %s", aviso)
+
+    _refresh_parqueo_state()
+    dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionResuelta", "datos": res}})
     return jsonify(res)
 
 
@@ -873,6 +948,154 @@ def ack_all_alarms():
     return jsonify({"success": True, "reconocidas": count, "message": f"{count} alarmas de severidad baja y media reconocidas"})
 
 
+@app.route("/api/turnos", methods=["POST"])
+@login_required
+@require_permission("emitir_comandos_remotos")
+def crear_turno_desde_plataforma():
+    """
+    Registra la presentacion de un vehiculo en la garita. Replica la validacion
+    que realiza el servidor al recibir la identificacion del controlador:
+    manifiesto con levante otorgado (efecto fisico obligatorio sobre la
+    talanquera), vehiculo registrado y cumplimiento de la ventana de la cita.
+    Un ingreso rechazado no crea turno (regla de la maquina de estados).
+    """
+    data = request.get_json() or {}
+    placa = (data.get("placa_vehiculo") or "").strip().upper()
+    manifiesto_id = (data.get("manifiesto_id") or "").strip().upper()
+
+    if not placa or not manifiesto_id:
+        return jsonify({"error": "Debe indicar la placa del vehiculo y el manifiesto"}), 400
+
+    conn = get_db_connection()
+
+    camion = conn.execute(
+        "SELECT * FROM catalogo_camiones WHERE placa = ?", (placa,)
+    ).fetchone()
+    if not camion:
+        conn.close()
+        return jsonify({"error": f"Vehiculo '{placa}' no registrado en el catalogo. Ingreso rechazado."}), 400
+
+    manif = conn.execute("SELECT * FROM manifiestos WHERE id = ?", (manifiesto_id,)).fetchone()
+    if not manif:
+        conn.close()
+        return jsonify({"error": f"Manifiesto '{manifiesto_id}' no encontrado. Ingreso rechazado."}), 400
+
+    if manif["estado_documental"] == "LEVANTE_RETENIDO":
+        conn.close()
+        return jsonify({
+            "error": "La talanquera no se abre: el manifiesto tiene el levante RETENIDO por la Autoridad Aduanera.",
+            "causa_rechazo": "LEVANTE_RETENIDO"
+        }), 400
+
+    if manif["estado_documental"] != "LEVANTE_OTORGADO":
+        conn.close()
+        return jsonify({
+            "error": f"La talanquera no se abre: el manifiesto no tiene levante otorgado (estado: {manif['estado_documental']}).",
+            "causa_rechazo": "SIN_LEVANTE"
+        }), 400
+
+    if camion["transportista_id"] != manif["transportista_id"]:
+        conn.close()
+        return jsonify({"error": "El vehiculo no pertenece al transportista asignado al manifiesto. Ingreso rechazado."}), 400
+
+    turno_activo = conn.execute("""
+    SELECT id FROM turnos
+    WHERE placa_vehiculo = ? AND estado_actual NOT IN ('Cerrado', 'Anulado')
+    """, (placa,)).fetchone()
+    if turno_activo:
+        conn.close()
+        return jsonify({"error": f"El vehiculo {placa} ya tiene un turno activo dentro de la terminal."}), 400
+
+    # Control de ventana: cita vigente del contenedor para hoy
+    ahora = datetime.now()
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
+    cita = conn.execute("""
+    SELECT * FROM citas
+    WHERE contenedor_id = ? AND fecha = ? AND estado = 'PROGRAMADA'
+    ORDER BY id DESC LIMIT 1
+    """, (manif["contenedor_id"], fecha_hoy)).fetchone()
+
+    fuera_de_ventana = True
+    cita_id = None
+    if cita:
+        try:
+            h_ini = datetime.strptime(f"{cita['fecha']} {cita['hora_inicio']}", "%Y-%m-%d %H:%M")
+            h_fin = datetime.strptime(f"{cita['fecha']} {cita['hora_fin']}", "%Y-%m-%d %H:%M")
+            limite = h_fin.timestamp() + 5 * 60  # 5 minutos de tolerancia
+            fuera_de_ventana = not (h_ini.timestamp() <= ahora.timestamp() <= limite)
+            cita_id = cita["id"]
+        except Exception:
+            fuera_de_ventana = True
+
+    riesgo_retencion = fuera_de_ventana or manif["canal_selectivo"] == "ROJO"
+
+    # E11: parqueo lleno y vehiculo con riesgo de retencion -> garita rechaza el ingreso
+    if riesgo_retencion:
+        plazas = get_parking_occupancy()
+        if all(p is not None for p in plazas.values()):
+            conn.close()
+            raise_alarm("AL11", origen="servidor", datos={"descripcion": "Parqueo de retencion lleno: ingreso rechazado en garita"})
+            return jsonify({
+                "error": "Ingreso rechazado: parqueo de retencion lleno (3/3 plazas ocupadas) y el vehiculo presenta riesgo de retencion.",
+                "causa_rechazo": "PARQUEO_LLENO"
+            }), 400
+
+    turno_id = create_turn(
+        placa=placa,
+        transportista_id=manif["transportista_id"],
+        contenedor_id=manif["contenedor_id"],
+        tipo_operacion=manif["tipo_operacion"],
+        manifiesto_id=manif["id"],
+        cita_id=cita_id,
+        peso_declarado_g=manif["peso_declarado_g"]
+    )
+
+    respuesta = {
+        "success": True,
+        "turno_id": turno_id,
+        "message": f"Turno creado. Talanquera abierta para el vehiculo {placa}."
+    }
+
+    if cita and not fuera_de_ventana:
+        conn.execute(
+            "UPDATE citas SET estado = 'CUMPLIDA', cumplida_en_ventana = 1 WHERE id = ?",
+            (cita["id"],)
+        )
+        conn.commit()
+    conn.close()
+
+    # RT04: llegada fuera de la ventana asignada -> retencion y desvio al parqueo
+    if fuera_de_ventana:
+        res = assign_retention(
+            turno_id=turno_id,
+            causa="RT04",
+            estacion="GARITA",
+            observacion="Llegada fuera de la ventana asignada a la cita"
+        )
+        if res:
+            if mqtt_client:
+                mqtt_client.publish("portus/cmd/solicitud", json.dumps({
+                    "comando": "AgujaParqueo", "parametros": {"plaza": res["plaza"]}
+                }))
+            aviso = msg_service.notify_vehiculo_retenido(
+                manif["transportista_id"], placa, manif["contenedor_id"], "RT04"
+            )
+            logging.info("Notificacion a transportista: %s", aviso)
+            _refresh_parqueo_state()
+            dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionCreada", "datos": res}})
+            respuesta["retencion"] = res
+            respuesta["message"] = f"Vehiculo {placa} ingreso FUERA DE VENTANA. Retencion RT04 asignada a plaza {res['plaza']}."
+        else:
+            raise_alarm("AL11", origen="servidor", datos={"descripcion": "Parqueo de retencion lleno"})
+            respuesta["advertencia"] = "Parqueo lleno: el vehiculo permanece en garita a la espera de plaza."
+
+    terminal_state["garita"]["estado"] = "Autorizada"
+    terminal_state["garita"]["vehiculo"] = placa
+    dispatch_event_to_sse({"topic": "portus/evt/garita", "data": {"tipo": "TurnoCreado", "datos": {"placa": placa, "turno_id": turno_id}}})
+
+    return jsonify(respuesta)
+
+
 # -------------------------------------------------------------
 # API: CITAS
 # -------------------------------------------------------------
@@ -884,6 +1107,188 @@ def list_citas():
     citas = conn.execute("SELECT * FROM citas WHERE fecha = ? ORDER BY hora_inicio ASC", (fecha,)).fetchall()
     conn.close()
     return jsonify([dict(c) for c in citas])
+
+
+def _datos_cita(cita_id):
+    conn = get_db_connection()
+    cita = conn.execute("SELECT * FROM citas WHERE id = ?", (cita_id,)).fetchone()
+    conn.close()
+    return dict(cita) if cita else None
+
+
+def _franja_ocupacion(fecha: str, hora_inicio: str, excluir_cita_id=None) -> int:
+    conn = get_db_connection()
+    if excluir_cita_id:
+        row = conn.execute("""
+        SELECT COUNT(*) as c FROM citas
+        WHERE fecha = ? AND hora_inicio = ? AND estado = 'PROGRAMADA' AND id != ?
+        """, (fecha, hora_inicio, excluir_cita_id)).fetchone()
+    else:
+        row = conn.execute("""
+        SELECT COUNT(*) as c FROM citas
+        WHERE fecha = ? AND hora_inicio = ? AND estado = 'PROGRAMADA'
+        """, (fecha, hora_inicio)).fetchone()
+    conn.close()
+    return row["c"]
+
+
+def _franja_bloqueada(fecha: str, hora_inicio: str) -> bool:
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT id FROM franjas_bloqueadas WHERE fecha = ? AND hora_inicio = ?",
+        (fecha, hora_inicio)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def _hora_fin_de(hora_inicio: str) -> str:
+    h_ini = datetime.strptime(hora_inicio, "%H:%M")
+    return (h_ini + timedelta(minutes=15)).strftime("%H:%M")
+
+
+@app.route("/api/citas/franjas-bloqueadas", methods=["GET"])
+@login_required
+@require_permission("ver_agenda_completa_citas")
+def list_franjas_bloqueadas():
+    conn = get_db_connection()
+    fecha = request.args.get("fecha", datetime.now().strftime("%Y-%m-%d"))
+    rows = conn.execute(
+        "SELECT * FROM franjas_bloqueadas WHERE fecha = ? ORDER BY hora_inicio ASC",
+        (fecha,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/citas/<int:cita_id>/cancelar", methods=["POST"])
+@login_required
+@require_permission("ver_agenda_completa_citas")
+def cancelar_cita(cita_id):
+    data = request.get_json(silent=True) or {}
+    motivo = data.get("motivo", "Cancelada por el operador de terminal")
+
+    cita = _datos_cita(cita_id)
+    if not cita:
+        return jsonify({"error": "Cita no encontrada"}), 404
+    if cita["estado"] != "PROGRAMADA":
+        return jsonify({"error": "Solo puede cancelarse una cita en estado PROGRAMADA"}), 400
+
+    conn = get_db_connection()
+    conn.execute("UPDATE citas SET estado = 'CANCELADA' WHERE id = ?", (cita_id,))
+    conn.commit()
+    conn.close()
+
+    aviso = msg_service.notify_cita_cancelada_reprogramada(
+        cita["transportista_id"], cita["contenedor_id"], "cancelada"
+    )
+    logging.info("Notificacion a transportista: %s (motivo: %s)", aviso, motivo)
+
+    dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "CitaCancelada", "datos": {"cita_id": cita_id}}})
+    return jsonify({"success": True, "message": f"Cita del contenedor {cita['contenedor_id']} cancelada y transportista notificado"})
+
+
+@app.route("/api/citas/<int:cita_id>/reprogramar", methods=["POST"])
+@login_required
+@require_permission("ver_agenda_completa_citas")
+def reprogramar_cita(cita_id):
+    data = request.get_json() or {}
+    fecha_nueva = (data.get("fecha") or "").strip()
+    hora_nueva = (data.get("hora_inicio") or "").strip()
+
+    if not fecha_nueva or not hora_nueva:
+        return jsonify({"error": "Debe indicar la fecha y la hora de inicio de la franja nueva"}), 400
+
+    try:
+        datetime.strptime(fecha_nueva, "%Y-%m-%d")
+        hora_fin_nueva = _hora_fin_de(hora_nueva)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Formato invalido. Fecha AAAA-MM-DD y hora HH:MM"}), 400
+
+    cita = _datos_cita(cita_id)
+    if not cita:
+        return jsonify({"error": "Cita no encontrada"}), 404
+    if cita["estado"] != "PROGRAMADA":
+        return jsonify({"error": "Solo puede reprogramarse una cita en estado PROGRAMADA"}), 400
+
+    if _franja_bloqueada(fecha_nueva, hora_nueva):
+        return jsonify({"error": f"La franja {fecha_nueva} {hora_nueva} esta bloqueada y no admite nuevas citas"}), 400
+
+    if _franja_ocupacion(fecha_nueva, hora_nueva, excluir_cita_id=cita_id) >= 2:
+        return jsonify({"error": f"La franja {fecha_nueva} {hora_nueva} esta llena (2/2 citas). Seleccione otra franja."}), 400
+
+    conn = get_db_connection()
+    conn.execute("""
+    UPDATE citas SET fecha = ?, hora_inicio = ?, hora_fin = ?, cumplida_en_ventana = 0
+    WHERE id = ?
+    """, (fecha_nueva, hora_nueva, hora_fin_nueva, cita_id))
+    conn.commit()
+    conn.close()
+
+    aviso = msg_service.notify_cita_cancelada_reprogramada(
+        cita["transportista_id"], cita["contenedor_id"], "reprogramada",
+        nueva_ventana=f"{fecha_nueva} de {hora_nueva} a {hora_fin_nueva}"
+    )
+    logging.info("Notificacion a transportista: %s", aviso)
+
+    dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "CitaReprogramada", "datos": {"cita_id": cita_id}}})
+    return jsonify({"success": True, "message": f"Cita reprogramada a {fecha_nueva} {hora_nueva}-{hora_fin_nueva} y notificada al transportista"})
+
+
+@app.route("/api/citas/bloquear-franja", methods=["POST"])
+@login_required
+@require_permission("ver_agenda_completa_citas")
+def bloquear_franja():
+    data = request.get_json() or {}
+    fecha = (data.get("fecha") or "").strip()
+    hora_inicio = (data.get("hora_inicio") or "").strip()
+
+    if not fecha or not hora_inicio:
+        return jsonify({"error": "Debe indicar fecha (AAAA-MM-DD) y hora de inicio (HH:MM) de la franja"}), 400
+
+    try:
+        datetime.strptime(fecha, "%Y-%m-%d")
+        hora_fin = _hora_fin_de(hora_inicio)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Formato invalido. Fecha AAAA-MM-DD y hora HH:MM"}), 400
+
+    if _franja_bloqueada(fecha, hora_inicio):
+        return jsonify({"error": "La franja ya se encuentra bloqueada"}), 400
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db_connection()
+    conn.execute("""
+    INSERT INTO franjas_bloqueadas (fecha, hora_inicio, hora_fin, creado_por, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    """, (fecha, hora_inicio, hora_fin, session["user"]["username"], now))
+    conn.commit()
+    conn.close()
+
+    dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "FranjaBloqueada", "datos": {"fecha": fecha, "hora_inicio": hora_inicio}}})
+    return jsonify({"success": True, "message": f"Franja {fecha} {hora_inicio}-{hora_fin} bloqueada: no admite nuevas citas"})
+
+
+@app.route("/api/citas/desbloquear-franja", methods=["POST"])
+@login_required
+@require_permission("ver_agenda_completa_citas")
+def desbloquear_franja():
+    data = request.get_json() or {}
+    fecha = (data.get("fecha") or "").strip()
+    hora_inicio = (data.get("hora_inicio") or "").strip()
+
+    conn = get_db_connection()
+    cur = conn.execute(
+        "DELETE FROM franjas_bloqueadas WHERE fecha = ? AND hora_inicio = ?",
+        (fecha, hora_inicio)
+    )
+    conn.commit()
+    conn.close()
+
+    if cur.rowcount == 0:
+        return jsonify({"error": "La franja no estaba bloqueada"}), 400
+
+    dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "FranjaDesbloqueada", "datos": {"fecha": fecha, "hora_inicio": hora_inicio}}})
+    return jsonify({"success": True, "message": f"Franja {fecha} {hora_inicio} desbloqueada"})
 
 
 # -------------------------------------------------------------

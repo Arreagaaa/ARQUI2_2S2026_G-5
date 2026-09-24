@@ -11,6 +11,7 @@ import type {
   Declaracion,
   EstadoTurno,
   EventoTimeline,
+  FranjaBloqueada,
   Manifiesto,
   Metricas,
   Retencion,
@@ -34,8 +35,8 @@ export const logout = () =>
 export const me = () => api.get<{ user: Usuario | null }>('/api/me')
 
 // Catalogos
-export const listTransportistas = () => api.get<{ transportistas: TransportistaInfo[] }>('/api/transportistas')
-export const listCatalogoContenedores = () => api.get<{ contenedores: CatalogoContenedor[] }>('/api/catalogo/contenedores')
+export const listTransportistas = () => api.get<TransportistaInfo[]>('/api/transportistas')
+export const listCatalogoContenedores = () => api.get<CatalogoContenedor[]>('/api/catalogo/contenedores')
 
 // Manifiestos
 export const listManifiestos = () => api.get<Manifiesto[]>('/api/manifiestos')
@@ -116,6 +117,16 @@ export const reconocerTodas = () => api.post<{ success: boolean; reconocidas: nu
 
 // Citas
 export const listCitas = (fecha: string) => api.get<Cita[]>(`/api/citas?fecha=${fecha}`)
+export const listFranjasBloqueadas = (fecha: string) =>
+  api.get<FranjaBloqueada[]>(`/api/citas/franjas-bloqueadas?fecha=${fecha}`)
+export const cancelarCita = (id: number, motivo?: string) =>
+  api.post<{ success: boolean; message: string }>(`/api/citas/${id}/cancelar`, { motivo })
+export const reprogramarCita = (id: number, fecha: string, hora_inicio: string) =>
+  api.post<{ success: boolean; message: string }>(`/api/citas/${id}/reprogramar`, { fecha, hora_inicio })
+export const bloquearFranja = (fecha: string, hora_inicio: string) =>
+  api.post<{ success: boolean; message: string }>('/api/citas/bloquear-franja', { fecha, hora_inicio })
+export const desbloquearFranja = (fecha: string, hora_inicio: string) =>
+  api.post<{ success: boolean; message: string }>('/api/citas/desbloquear-franja', { fecha, hora_inicio })
 
 // Comandos remotos
 export const comandoRemoto = (comando: string, parametros: Record<string, unknown> = {}) =>

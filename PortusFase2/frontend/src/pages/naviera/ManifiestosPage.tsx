@@ -239,7 +239,7 @@ export default function ManifiestosPage() {
               placeholder="MSKU1001"
             />
             <datalist id="catalogo-contenedores">
-              {(catalogo.data?.contenedores || []).map((c) => (
+              {(catalogo.data || []).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.tipo}
                 </option>
@@ -287,7 +287,7 @@ export default function ManifiestosPage() {
                 onChange={(e) => setForm({ ...form, transportista_id: e.target.value })}
               >
                 <option value="">Seleccione...</option>
-                {(transportistas.data?.transportistas || []).map((t) => (
+                {(transportistas.data || []).map((t) => (
                   <option key={t.username} value={t.username}>
                     {t.nombre_completo} ({t.username})
                   </option>

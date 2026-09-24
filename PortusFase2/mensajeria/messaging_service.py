@@ -204,7 +204,14 @@ class TransportistaMessagingService:
             WHERE fecha = ? AND hora_inicio = ? AND estado = 'PROGRAMADA'
             """, (fecha_hoy, h_ini)).fetchone()["c"]
 
-            if citas_en_franja < 2:
+            # Una franja bloqueada por el operador no se ofrece al transportista
+            franja_bloqueada = conn.execute("""
+            SELECT COUNT(*) as c FROM franjas_bloqueadas
+            WHERE fecha = ? AND hora_inicio = ?
+            """, (fecha_hoy, h_ini)).fetchone()["c"]
+
+            # Regla: una franja llena o bloqueada no se ofrece; se ofrece la siguiente con capacidad
+            if citas_en_franja < 2 and not franja_bloqueada:
                 franja_asignada = (h_ini, h_fin)
                 break
             hora_cursor += timedelta(minutes=15)

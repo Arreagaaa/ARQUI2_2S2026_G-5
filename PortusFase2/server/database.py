@@ -20,9 +20,11 @@ def hash_password(password: str) -> str:
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL permite lecturas concurrentes mientras un hilo escribe (servidor multihilo)
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -249,6 +251,19 @@ def init_database():
         usado INTEGER NOT NULL DEFAULT 0,
         chat_id TEXT,
         created_at TEXT NOT NULL
+    );
+    """)
+
+    # 13. Franjas de la agenda bloqueadas por el operador (impiden asignacion de nuevas citas)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS franjas_bloqueadas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha TEXT NOT NULL,
+        hora_inicio TEXT NOT NULL,
+        hora_fin TEXT NOT NULL,
+        creado_por TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (fecha, hora_inicio)
     );
     """)
 
