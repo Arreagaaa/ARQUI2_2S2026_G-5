@@ -143,9 +143,15 @@ def on_mqtt_message(client, userdata, msg):
                 terminal_state["aguja"] = datos.get("aguja", terminal_state["aguja"])
                 terminal_state["grua"]["posicion"] = datos.get("grua_pos", terminal_state["grua"]["posicion"])
                 terminal_state["grua"]["cola_pendientes"] = datos.get("cola_grua", terminal_state["grua"]["cola_pendientes"])
-                terminal_state["grua"]["suspendida"] = (datos.get("grua_susp") == "SI")
-                terminal_state["grua"]["referenciada"] = (datos.get("grua_ref") == "SI")
-                terminal_state["grua"]["en_falla"] = (datos.get("grua_falla") == "SI")
+                # Solo se actualizan si la trama trae el dato: el INO real (legacy)
+                # no incluye grua_ref/susp/falla y forzarlos a "no" en cada evento
+                # marcaba la grua como no referenciada aunque si lo estuviera.
+                if "grua_susp" in datos:
+                    terminal_state["grua"]["suspendida"] = (datos["grua_susp"] == "SI")
+                if "grua_ref" in datos:
+                    terminal_state["grua"]["referenciada"] = (datos["grua_ref"] == "SI")
+                if "grua_falla" in datos:
+                    terminal_state["grua"]["en_falla"] = (datos["grua_falla"] == "SI")
                 # El latido mantiene el parqueo del sinoptico alineado sin polling al navegador
                 _refresh_parqueo_state()
 
@@ -166,6 +172,16 @@ def on_mqtt_message(client, userdata, msg):
                     terminal_state["pesaje"]["ultimo_valor_kg"] = float(datos["peso"])
                 except Exception:
                     pass
+            else:
+                # Trama legacy del INO Fase 1:
+                #   "detalle=Peso leido: 2.22 kg (declarado: ..., tolerancia: ...)"
+                detalle = str(datos.get("detalle", ""))
+                if "Peso leido:" in detalle:
+                    try:
+                        token = detalle.split("Peso leido:")[1].split("kg")[0].strip()
+                        terminal_state["pesaje"]["ultimo_valor_kg"] = float(token)
+                    except Exception:
+                        pass
 
         elif topic == "portus/evt/aguja":
             terminal_state["aguja"] = datos.get("posicion", terminal_state["aguja"])
