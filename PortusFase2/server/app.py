@@ -68,6 +68,7 @@ terminal_state = {
 }
 
 # Servicio de mensajeria
+init_database()
 msg_service = TransportistaMessagingService()
 
 # Cliente MQTT del servidor

@@ -9,7 +9,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        // Por defecto backend local (desarrollo con --mock en Windows).
+        // Para apuntar a la Raspberry: $env:PORTUS_API="http://192.168.0.13:5000"; pnpm dev
+        target: process.env.PORTUS_API ?? 'http://localhost:5000',
         changeOrigin: true,
       },
     },
