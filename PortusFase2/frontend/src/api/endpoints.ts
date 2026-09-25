@@ -88,6 +88,11 @@ export const retenerTurno = (turnoId: number, observacion?: string) =>
   )
 export const anularTurno = (turnoId: number) =>
   api.post<{ success: boolean; message: string }>(`/api/turnos/${turnoId}/anular`)
+export const crearTurno = (data: { placa_vehiculo: string; manifiesto_id: string }) =>
+  api.post<{ success: boolean; turno_id: number; message: string; retencion?: unknown }>(
+    '/api/turnos',
+    data,
+  )
 
 // Retenciones
 export const listRetenciones = (params?: { estado?: string; causa?: CausaRetencion }) => {

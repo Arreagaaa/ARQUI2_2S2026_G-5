@@ -158,8 +158,40 @@ def on_mqtt_message(client, userdata, msg):
         elif topic == "portus/evt/garita":
             tipo_ev = data.get("tipo")
             if tipo_ev == "GaritaIdentificacion":
+                uid_raw = str(datos.get("uid", "")).strip().upper()
                 terminal_state["garita"]["estado"] = "Validando"
-                terminal_state["garita"]["vehiculo"] = datos.get("uid")
+                conn = get_db_connection()
+                camion = conn.execute(
+                    "SELECT placa, transportista_id FROM catalogo_camiones WHERE rfid_uid = ? OR placa = ?",
+                    (uid_raw, uid_raw)
+                ).fetchone()
+                placa = camion["placa"] if camion else uid_raw
+                terminal_state["garita"]["vehiculo"] = placa
+
+                if camion:
+                    turno_activo = conn.execute("""
+                    SELECT id FROM turnos WHERE placa_vehiculo = ? AND estado_actual NOT IN ('Cerrado', 'Anulado')
+                    """, (placa,)).fetchone()
+                    if not turno_activo:
+                        manif = conn.execute("""
+                        SELECT m.* FROM manifiestos m
+                        WHERE m.transportista_id = ? AND m.estado_documental = 'LEVANTE_OTORGADO'
+                          AND m.id NOT IN (SELECT COALESCE(manifiesto_id, '') FROM turnos WHERE estado_actual NOT IN ('Cerrado', 'Anulado'))
+                        ORDER BY m.id ASC LIMIT 1
+                        """, (camion["transportista_id"],)).fetchone()
+                        if manif:
+                            tid = create_turn(
+                                placa=placa,
+                                transportista_id=camion["transportista_id"],
+                                contenedor_id=manif["contenedor_id"],
+                                tipo_operacion=manif["tipo_operacion"],
+                                manifiesto_id=manif["id"],
+                                peso_declarado_g=manif["peso_declarado_g"]
+                            )
+                            terminal_state["garita"]["estado"] = "Autorizada"
+                            terminal_state["talanquera"] = "Abierta"
+                            logging.info("Turno %d creado automaticamente para vehiculo %s", tid, placa)
+                conn.close()
             elif "RECHAZADO" in str(datos):
                 terminal_state["garita"]["estado"] = "Rechazada"
             else:
@@ -167,27 +199,68 @@ def on_mqtt_message(client, userdata, msg):
 
         elif topic == "portus/evt/pesaje":
             terminal_state["pesaje"]["estado"] = "Medicion valida"
+            peso_val = None
             if "peso" in datos:
                 try:
-                    terminal_state["pesaje"]["ultimo_valor_kg"] = float(datos["peso"])
+                    peso_val = float(datos["peso"])
                 except Exception:
                     pass
             else:
-                # Trama legacy del INO Fase 1:
-                #   "detalle=Peso leido: 2.22 kg (declarado: ..., tolerancia: ...)"
                 detalle = str(datos.get("detalle", ""))
                 if "Peso leido:" in detalle:
                     try:
                         token = detalle.split("Peso leido:")[1].split("kg")[0].strip()
-                        terminal_state["pesaje"]["ultimo_valor_kg"] = float(token)
+                        peso_val = float(token)
                     except Exception:
                         pass
+            if peso_val is not None:
+                terminal_state["pesaje"]["ultimo_valor_kg"] = peso_val
+                conn = get_db_connection()
+                t_act = conn.execute("""
+                SELECT * FROM turnos WHERE estado_actual IN ('EnGarita', 'EnPesajeEntrada') ORDER BY id DESC LIMIT 1
+                """).fetchone()
+                if t_act:
+                    peso_g = int(peso_val * 1000)
+                    conn.execute("UPDATE turnos SET peso_medido_entrada_g = ? WHERE id = ?", (peso_g, t_act["id"]))
+                    conn.commit()
+                    transition_turn(t_act["id"], "EnPesajeEntrada", estacion="PESAJE", origen="controlador",
+                                    detalle=f"Lectura bascula entrada: {peso_val} kg",
+                                    valores={"peso_kg": peso_val})
+                conn.close()
 
         elif topic == "portus/evt/aguja":
             terminal_state["aguja"] = datos.get("posicion", terminal_state["aguja"])
 
+        elif topic == "portus/evt/transferencia":
+            tipo_tr = data.get("tipo", "")
+            if "Alineado" in tipo_tr or "Inicio" in tipo_tr or "Transferencia" in tipo_tr:
+                terminal_state["transferencia"]["estado"] = "Ocupada"
+                conn = get_db_connection()
+                t_act = conn.execute("""
+                SELECT * FROM turnos WHERE estado_actual IN ('EnPesajeEntrada', 'EnRuta') ORDER BY id DESC LIMIT 1
+                """).fetchone()
+                if t_act:
+                    transition_turn(t_act["id"], "EnTransferencia", estacion="TRANSFERENCIA", origen="controlador",
+                                    detalle="Vehiculo posicionado en zona de transferencia")
+                conn.close()
+            elif "Fin" in tipo_tr or "Libre" in str(datos):
+                terminal_state["transferencia"]["estado"] = "Libre"
+
         elif topic == "portus/evt/grua":
             terminal_state["grua"]["estado"] = data.get("tipo", "Operando")
+
+        elif topic == "portus/evt/salida":
+            tipo_sal = data.get("tipo", "")
+            if "Paso" in tipo_sal or "Autorizado" in tipo_sal or "Salida" in tipo_sal:
+                terminal_state["puerta_salida"] = "Abierta"
+                conn = get_db_connection()
+                t_act = conn.execute("""
+                SELECT * FROM turnos WHERE estado_actual IN ('EnTransferencia', 'EnPesajeSalida', 'EnSalida') ORDER BY id DESC LIMIT 1
+                """).fetchone()
+                if t_act:
+                    transition_turn(t_act["id"], "Cerrado", estacion="SALIDA", origen="controlador",
+                                    detalle="Vehiculo salio de la terminal. Operacion completada.")
+                conn.close()
 
         elif topic == "portus/evt/alarma":
             cod = datos.get("codigo", "AL00")
@@ -986,11 +1059,12 @@ def crear_turno_desde_plataforma():
     conn = get_db_connection()
 
     camion = conn.execute(
-        "SELECT * FROM catalogo_camiones WHERE placa = ?", (placa,)
+        "SELECT * FROM catalogo_camiones WHERE placa = ? OR rfid_uid = ?", (placa, placa)
     ).fetchone()
     if not camion:
         conn.close()
         return jsonify({"error": f"Vehiculo '{placa}' no registrado en el catalogo. Ingreso rechazado."}), 400
+    placa = camion["placa"]
 
     manif = conn.execute("SELECT * FROM manifiestos WHERE id = ?", (manifiesto_id,)).fetchone()
     if not manif:
