@@ -8,7 +8,7 @@ import sqlite3
 import os
 import json
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "portus_fase2.db")
 
@@ -306,11 +306,11 @@ def seed_initial_data(conn):
     for cid, tipo, tara in contenedores:
         c.execute("INSERT OR IGNORE INTO catalogo_contenedores (id, tipo, tara_g) VALUES (?, ?, ?)", (cid, tipo, tara))
 
-    # 3. Catalogo de camiones
+    # 3. Catalogo de camiones (con UIDs reales de hardware leidos por el RC522)
     camiones = [
-        ("P001AAA", "trans_rapido", 6000, "A1B2C3D4"),
-        ("P002BBB", "trans_rapido", 6200, "B2C3D4E5"),
-        ("P003CCC", "trans_global", 5900, "C3D4E5F6"),
+        ("P001AAA", "trans_rapido", 6000, "39BB16B3"),
+        ("P002BBB", "trans_rapido", 6200, "D9D87BD3"),
+        ("P003CCC", "trans_global", 5900, "55667788"),
         ("P004DDD", "trans_global", 6100, "D4E5F6A1"),
     ]
     for placa, trans, tara, uid in camiones:
@@ -318,6 +318,8 @@ def seed_initial_data(conn):
         INSERT OR IGNORE INTO catalogo_camiones (placa, transportista_id, tara_g, rfid_uid)
         VALUES (?, ?, ?, ?)
         """, (placa, trans, tara, uid))
+        # Actualizar UID si ya existia con el valor anterior
+        c.execute("UPDATE catalogo_camiones SET rfid_uid = ? WHERE placa = ?", (uid, placa))
 
     # 4. Inicializar posiciones de patio (2 posiciones, 2 niveles = 4 celdas)
     for pos in [0, 1]:
@@ -332,8 +334,100 @@ def seed_initial_data(conn):
     UPDATE patio_posiciones
     SET contenedor_id = 'MSKU1001', naviera_id = 'maersk', peso_declarado_g = 22000,
         estado_autorizacion = 'AUTORIZADO', ingreso_at = ?
-    WHERE posicion = 0 AND nivel = 0 AND contenedor_id IS NULL
+    WHERE posicion = 0 AND nivel = 0 AND (contenedor_id IS NULL OR contenedor_id = 'MSKU1001')
     """, (now,))
+
+    # 5. Manifiestos de demostracion para validar cadena documental y roles
+    manifiestos_demo = [
+        ("MAN-0001", "MSKU1001", "maersk", "DEPOSITO", 22000, 5.0, "trans_rapido", "Carga inicial en patio", "LEVANTE_OTORGADO", "VERDE", now, now),
+        ("MAN-0002", "MSKU1002", "maersk", "DEPOSITO", 25000, 5.0, "trans_rapido", "Importacion maquinaria", "LEVANTE_OTORGADO", "VERDE", now, now),
+        ("MAN-0003", "MSCU2001", "msc", "RETIRO", 20000, 5.0, "trans_global", "Retiro materia prima", "LEVANTE_SOLICITADO", None, now, now),
+        ("MAN-0004", "MSCU2002", "msc", "DEPOSITO", 24000, 5.0, "trans_global", "Insumos hospitalarios", "DECLARADO", None, now, now),
+        ("MAN-0005", "CMAU3001", "maersk", "DEPOSITO", 21000, 5.0, "trans_rapido", "Pendiente declaracion", "CREADO", None, now, now),
+    ]
+    for mid, cid, nid, top, pdec, tol, tid, obs, est, can, cat, uat in manifiestos_demo:
+        c.execute("""
+        INSERT OR IGNORE INTO manifiestos (
+            id, contenedor_id, naviera_id, tipo_operacion, peso_declarado_g,
+            tolerancia_pct, transportista_id, observaciones, estado_documental,
+            canal_selectivo, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (mid, cid, nid, top, pdec, tol, tid, obs, est, can, cat, uat))
+
+    # 6. Declaraciones de mercancias de demostracion
+    declaraciones_demo = [
+        ("DEC-2026-0001", "MAN-0001", "agente1", "Importacion definitiva", "Componentes de computo y servidores", 52000.0, now),
+        ("DEC-2026-0002", "MAN-0002", "agente1", "Importacion definitiva", "Repuestos industriales de precision", 38000.0, now),
+        ("DEC-2026-0003", "MAN-0003", "agente1", "Importacion definitiva", "Materia prima textil para confeccion", 29500.0, now),
+        ("DEC-2026-0004", "MAN-0004", "agente1", "Deposito temporal", "Equipos electronicos de medicion", 41000.0, now),
+    ]
+    for ndecl, mid, aid, reg, desc, val, cat in declaraciones_demo:
+        c.execute("""
+        INSERT OR IGNORE INTO declaraciones (
+            numero_declaracion, manifiesto_id, agente_id, regimen,
+            descripcion_mercancia, valor_declarado, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (ndecl, mid, aid, reg, desc, val, cat))
+
+    # 7. Citas para la agenda del dia actual
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    citas_demo = [
+        ("trans_rapido", "MSKU1002", "MAN-0002", fecha_hoy, "10:00", "10:15", "PROGRAMADA", 0, now),
+        ("trans_global", "MSCU2001", "MAN-0003", fecha_hoy, "11:30", "11:45", "PROGRAMADA", 0, now),
+    ]
+    for tid, cid, mid, fec, hini, hfin, est, cv, cat in citas_demo:
+        c.execute("""
+        INSERT OR IGNORE INTO citas (
+            transportista_id, contenedor_id, manifiesto_id, fecha, hora_inicio, hora_fin,
+            estado, cumplida_en_ventana, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (tid, cid, mid, fec, hini, hfin, est, cv, cat))
+
+    # 8. Turno historico completado y metricas de corrida
+    t_ant_ini = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+    t_ant_fin = (datetime.now(timezone.utc) - timedelta(hours=3, minutes=56)).isoformat()
+    c.execute("""
+    INSERT OR IGNORE INTO turnos (
+        codigo_turno, placa_vehiculo, transportista_id, contenedor_id, manifiesto_id,
+        tipo_operacion, estado_actual, estacion_actual, peso_declarado_g,
+        peso_medido_entrada_g, peso_medido_salida_g, posicion_patio_asignada, nivel_patio_asignado,
+        tiempo_inicio, tiempo_fin, tiempo_total_seg
+    ) VALUES ('TRN-0001', 'P001AAA', 'trans_rapido', 'MSKU1001', 'MAN-0001',
+              'DEPOSITO', 'Cerrado', 'SALIDA', 22000, 28000, 6000, 0, 0,
+              ?, ?, 240)
+    """, (t_ant_ini, t_ant_fin))
+
+    t_row = c.execute("SELECT id FROM turnos WHERE codigo_turno = 'TRN-0001'").fetchone()
+    if t_row:
+        t_id = t_row["id"]
+        c.execute("DELETE FROM linea_tiempo_turno WHERE turno_id = ?", (t_id,))
+        c.execute("""
+        INSERT INTO linea_tiempo_turno (turno_id, timestamp, origen, descripcion, valores_asociados)
+        VALUES (?, ?, 'servidor', 'Ingreso autorizado e inicio de turno TRN-0001', '{"placa":"P001AAA","contenedor":"MSKU1001"}')
+        """, (t_id, t_ant_ini))
+        c.execute("""
+        INSERT INTO linea_tiempo_turno (turno_id, timestamp, origen, descripcion, valores_asociados)
+        VALUES (?, ?, 'controlador', 'Lectura de bascula de entrada: 28.0 kg', '{"peso_kg":28.0}')
+        """, (t_id, t_ant_ini))
+        c.execute("""
+        INSERT INTO linea_tiempo_turno (turno_id, timestamp, origen, descripcion, valores_asociados)
+        VALUES (?, ?, 'servidor', 'Operacion completada y salida de terminal', '{"estado":"Cerrado"}')
+        """, (t_id, t_ant_fin))
+
+        # 9. Ciclos historicos de grua vinculados al turno
+        c.execute("DELETE FROM grua_ciclos WHERE turno_id = ?", (t_id,))
+        c.execute("""
+        INSERT INTO grua_ciclos (
+            turno_id, tipo_trabajo, posicion_origen, posicion_destino,
+            tiempo_ciclo_seg, distancia_recorrida_mm, exitoso, timestamp
+        ) VALUES (?, 'DESCARGA_CAMION_A_PATIO', 0, 1, 19.4, 850.0, 1, ?)
+        """, (t_id, t_ant_ini))
+        c.execute("""
+        INSERT INTO grua_ciclos (
+            turno_id, tipo_trabajo, posicion_origen, posicion_destino,
+            tiempo_ciclo_seg, distancia_recorrida_mm, exitoso, timestamp
+        ) VALUES (?, 'REPOSICION_PATIO', 1, 1, 14.2, 400.0, 1, ?)
+        """, (t_id, t_ant_ini))
 
     conn.commit()
 

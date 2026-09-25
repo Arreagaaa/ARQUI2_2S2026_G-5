@@ -28,6 +28,8 @@ import {
   listTurnos,
   bloquearPosicion,
   liberarPosicion,
+  crearTurno,
+  listManifiestos,
 } from '../../api/endpoints'
 import type { CeldaPatio, EstadoTerminal, EventoSSE, Retencion, Turno } from '../../types'
 import { Panel, StatusBadge, MonoId, Spinner, Modal, LiveIndicator } from '../../components/ui'
@@ -115,6 +117,12 @@ export default function OperacionPage() {
   const retencionesQ = useApi(() => listRetenciones({ estado: 'ABIERTA' }), [])
   const patioQ = useApi(() => listPatio(), [])
   const turnosQ = useApi(() => listTurnos(), [])
+  const manifiestosQ = useApi(() => listManifiestos(), [])
+
+  const [modalIngreso, setModalIngreso] = useState(false)
+  const [placaIngreso, setPlacaIngreso] = useState('')
+  const [manifiestoIngreso, setManifiestoIngreso] = useState('')
+  const [creandoTurno, setCreandoTurno] = useState(false)
 
   const recargarLogicos = useCallback(() => {
     retencionesQ.reload()
@@ -248,9 +256,13 @@ export default function OperacionPage() {
             titulo="Garita"
             className="lg:w-44"
             activo={estado.garita.vehiculo != null}
-            onClick={
-              turnosActivos.length > 0 ? () => setTurnoDetalle(turnosActivos[0]) : undefined
-            }
+            onClick={() => {
+              if (turnosActivos.length > 0) setTurnoDetalle(turnosActivos[0])
+              else {
+                if (estado.garita.vehiculo) setPlacaIngreso(estado.garita.vehiculo)
+                setModalIngreso(true)
+              }
+            }}
           >
             <StatusBadge color={colorGarita(estado.garita.estado)}>{estado.garita.estado}</StatusBadge>
             <div className="mt-1.5">
@@ -447,6 +459,15 @@ export default function OperacionPage() {
 
         <Panel title="Puertas y accesos" bodyClassName="p-3 flex flex-wrap gap-2">
           <button
+            className="btn-primary"
+            onClick={() => {
+              if (estado.garita.vehiculo) setPlacaIngreso(estado.garita.vehiculo)
+              setModalIngreso(true)
+            }}
+          >
+            <Truck size={13} /> Autorizar ingreso garita
+          </button>
+          <button
             className="btn-ghost"
             onClick={() => confirmar('Abrir talanquera', 'El controlador rechazara el comando si hay un vehiculo detectado bajo la talanquera.', 'AbrirTalanquera')}
           >
@@ -622,6 +643,78 @@ export default function OperacionPage() {
             <p className="text-2xs text-inkfaint">Operado por {user?.username}.</p>
           </div>
         )}
+      </Modal>
+
+      {/* Modal de autorizacion manual de ingreso / creacion de turno */}
+      <Modal
+        open={modalIngreso}
+        onClose={() => setModalIngreso(false)}
+        title="Autorizar ingreso en garita (Crear turno)"
+        width="max-w-md"
+        footer={
+          <>
+            <button className="btn-ghost" onClick={() => setModalIngreso(false)} disabled={creandoTurno}>
+              Cancelar
+            </button>
+            <button
+              className="btn-primary"
+              disabled={creandoTurno || !placaIngreso.trim() || !manifiestoIngreso}
+              onClick={async () => {
+                setCreandoTurno(true)
+                try {
+                  const res = await crearTurno({
+                    placa_vehiculo: placaIngreso.trim().toUpperCase(),
+                    manifiesto_id: manifiestoIngreso,
+                  })
+                  push('exito', res.message)
+                  setModalIngreso(false)
+                  setPlacaIngreso('')
+                  setManifiestoIngreso('')
+                  recargarLogicos()
+                } catch (e) {
+                  push('error', e instanceof Error ? e.message : 'Error al autorizar ingreso')
+                } finally {
+                  setCreandoTurno(false)
+                }
+              }}
+            >
+              {creandoTurno ? <Spinner size={13} /> : <DoorOpen size={13} />}
+              {creandoTurno ? 'Autorizando...' : 'Autorizar y abrir'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-xs">
+          <p className="text-inkdim">
+            Valida manifiesto con levante aduanero, horario de cita y capacidad del parqueo. Al autorizar, se abre la talanquera e inicia el turno operativo.
+          </p>
+          <div>
+            <label className="label">Placa o UID del vehiculo</label>
+            <input
+              className="input w-full font-mono"
+              placeholder="Ej: P002BBB o D9D87BD3"
+              value={placaIngreso}
+              onChange={(e) => setPlacaIngreso(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Manifiesto con levante otorgado</label>
+            <select
+              className="input w-full"
+              value={manifiestoIngreso}
+              onChange={(e) => setManifiestoIngreso(e.target.value)}
+            >
+              <option value="">-- Seleccione manifiesto con levante --</option>
+              {(manifiestosQ.data || [])
+                .filter((m) => m.estado_documental === 'LEVANTE_OTORGADO')
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} - {m.contenedor_id} ({m.tipo_operacion}, {m.naviera_id}, {m.canal_selectivo || 'VERDE'})
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
       </Modal>
     </div>
   )
