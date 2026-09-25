@@ -18,6 +18,40 @@
 
 static String buffer = "";
 
+// --- Latido periodico para Fase 2 (puente Serial-MQTT de la Raspberry) ---
+// El puente reinicia su supervision de enlace con cualquier trama valida y
+// dispara AL01 tras 15 s (3 periodos de 5 s) de silencio. Sin latido, una
+// maqueta en reposo generaria alarmas falsas, por eso se emite aunque no
+// ocurra ningun evento fisico. Formato identico a SerialProtocol.build_frame:
+//   [SEQ:HB:LatidoEstado::CRC]   CRC16-CCITT sobre "SEQ:HB:LatidoEstado:"
+static uint32_t latidoSeq = 0;
+static unsigned long latidoUltimoMs = 0;
+static const unsigned long LATIDO_INTERVALO_MS = 5000UL;
+
+static uint16_t crc16Ccitt(const String &s) {
+  uint16_t crc = 0xFFFF;
+  for (unsigned i = 0; i < s.length(); i++) {
+    crc ^= (uint16_t)s[i] << 8;
+    for (uint8_t b = 0; b < 8; b++) {
+      if (crc & 0x8000) crc = (uint16_t)((crc << 1) ^ 0x1021);
+      else               crc = (uint16_t)(crc << 1);
+    }
+  }
+  return crc;
+}
+
+static void enviarLatido() {
+  String contenido = String(latidoSeq) + ":HB:LatidoEstado:";
+  char crcHex[6];
+  snprintf(crcHex, sizeof(crcHex), "%04X", crc16Ccitt(contenido));
+  Serial.print('[');
+  Serial.print(contenido);
+  Serial.print(':');
+  Serial.print(crcHex);
+  Serial.println(']');
+  latidoSeq++;
+}
+
 static void imprimirAyuda() {
   Serial.println(F("Comandos disponibles:"));
   Serial.println(F("  ESTADO  - resumen de turnos activos"));
@@ -107,9 +141,18 @@ void console_init() {
   Serial.begin(115200);
   Serial.println(F("=== PORTUS Fase 1 - Consola de supervision local ==="));
   imprimirAyuda();
+  latidoUltimoMs = millis(); // primer latido a los 5 s de arrancar
 }
 
 void console_update() {
+  // Latido de enlace para Fase 2: se emite SIEMPRE (tambien con el paro
+  // de emergencia activo), porque el enlace serial sigue estando vivo.
+  unsigned long ahora = millis();
+  if (ahora - latidoUltimoMs >= LATIDO_INTERVALO_MS) {
+    latidoUltimoMs = ahora;
+    enviarLatido();
+  }
+
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\n' || c == '\r') {
