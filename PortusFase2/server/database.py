@@ -10,7 +10,7 @@ import json
 import hashlib
 from datetime import datetime, timezone, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "portus_fase2.db")
+DB_PATH = os.environ.get("PORTUS_DB_PATH", os.path.join(os.path.dirname(__file__), "portus_fase2.db"))
 
 
 def hash_password(password: str) -> str:
@@ -267,6 +267,14 @@ def init_database():
     );
     """)
 
+    c.execute("CREATE TABLE IF NOT EXISTS schema_metadata (key TEXT PRIMARY KEY, value TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS controller_events (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, tipo TEXT NOT NULL, datos TEXT NOT NULL)")
+    c.execute("CREATE TABLE IF NOT EXISTS controller_state (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL)")
+    columns = {r[1] for r in c.execute("PRAGMA table_info(turnos)")}
+    for name, definition in (("hardware_key", "TEXT"), ("naviera_id", "TEXT"), ("retenido_fisico", "INTEGER DEFAULT 0")):
+        if name not in columns:
+            c.execute(f"ALTER TABLE turnos ADD COLUMN {name} {definition}")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS hardware_turn_key ON turnos(hardware_key)")
     conn.commit()
     seed_initial_data(conn)
     conn.close()
@@ -306,11 +314,14 @@ def seed_initial_data(conn):
     for cid, tipo, tara in contenedores:
         c.execute("INSERT OR IGNORE INTO catalogo_contenedores (id, tipo, tara_g) VALUES (?, ?, ?)", (cid, tipo, tara))
 
+    for cid in range(1, 11):
+        c.execute("INSERT OR IGNORE INTO catalogo_contenedores VALUES (?, 'MAQUETA', 0)", (f"CT-{cid:03d}",))
+
     # 3. Catalogo de camiones (con UIDs reales de hardware leidos por el RC522)
     camiones = [
-        ("P001AAA", "trans_rapido", 6000, "39BB16B3"),
-        ("P002BBB", "trans_rapido", 6200, "D9D87BD3"),
-        ("P003CCC", "trans_global", 5900, "55667788"),
+        ("P001AAA", "trans_rapido", 120, "39BB16B3"),
+        ("P002BBB", "trans_rapido", 2240, "D9D87BD3"),
+        ("P003CCC", "trans_global", 2340, "55667788"),
         ("P004DDD", "trans_global", 6100, "D4E5F6A1"),
     ]
     for placa, trans, tara, uid in camiones:
@@ -328,6 +339,14 @@ def seed_initial_data(conn):
             INSERT OR IGNORE INTO patio_posiciones (posicion, nivel, contenedor_id, naviera_id, peso_declarado_g, estado_autorizacion, bloqueada, ingreso_at, remociones)
             VALUES (?, ?, NULL, NULL, NULL, 'LIBRE', 0, NULL, 0)
             """, (pos, niv))
+
+    if os.environ.get("PORTUS_DEMO_DATA", "false").lower() not in ("true", "1", "yes"):
+        conn.commit()
+        return
+    if c.execute("SELECT 1 FROM schema_metadata WHERE key='demo_seeded'").fetchone():
+        conn.commit()
+        return
+    c.execute("INSERT INTO schema_metadata VALUES ('demo_seeded', '1')")
 
     # Posicion inicial para demostraciones: P0 N0 con un contenedor existente
     c.execute("""

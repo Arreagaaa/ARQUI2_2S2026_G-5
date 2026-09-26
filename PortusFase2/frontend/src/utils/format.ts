@@ -52,7 +52,7 @@ export function fmtMinutos(min: number | null | undefined): string {
 
 export function fmtKg(gramos: number | null | undefined): string {
   if (gramos == null) return '-'
-  return `${(gramos / 1000).toFixed(1)} kg`
+  return `${(gramos / 1000).toFixed(2)} kg`
 }
 
 export function fmtPesoCrudo(gramos: number | null | undefined): string {
@@ -61,7 +61,8 @@ export function fmtPesoCrudo(gramos: number | null | undefined): string {
 }
 
 export function hoyISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
 }
 
 export function minutosATexto(min: number): string {

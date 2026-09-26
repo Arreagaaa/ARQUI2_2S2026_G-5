@@ -1,3 +1,4 @@
+import { api } from '../../api/client'
 // Rol AGENTE - pestaña Declaraciones: presentar declaracion de mercancias y
 // solicitar levante ante la autoridad aduanera.
 import { useMemo, useState } from 'react'
@@ -33,7 +34,7 @@ const VACIO: FormDeclaracion = {
 }
 
 // Estados en los que el manifiesto aun no cuenta con levante resuelto.
-const SIN_LEVANTE = new Set(['CREADO', 'DECLARADO', 'LEVANTE_SOLICITADO'])
+const SIN_LEVANTE = new Set(['CREADO', 'DECLARADO', 'LEVANTE_SOLICITADO', 'LEVANTE_RETENIDO'])
 
 export default function DeclaracionesPage() {
   const { push } = useToast()
@@ -101,12 +102,14 @@ export default function DeclaracionesPage() {
     }
   }
 
-  const adjuntarObservacion = () => {
-    // La observacion se asocia a la declaracion del manifiesto al momento de
-    // presentarla. Si el manifiesto aun no tiene declaracion, se orienta al usuario.
-    push('info', 'La observacion documental se registra al presentar la declaracion de mercancias.')
-    setObservando(null)
-    setObsTexto('')
+  const adjuntarObservacion = async () => {
+    if (!observando) return
+    try {
+      await api.post('/api/declaraciones/observacion', { manifiesto_id: observando.id, observacion: obsTexto })
+      push('exito', 'Observacion guardada')
+      setObservando(null)
+      setObsTexto('')
+    } catch (e) { push('error', e instanceof Error ? e.message : 'No se pudo guardar') }
   }
 
   const columnas: Columna<Manifiesto>[] = [

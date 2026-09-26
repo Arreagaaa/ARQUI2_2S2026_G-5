@@ -94,7 +94,7 @@ export default function PatioPage() {
     <div className="space-y-4">
       <Panel
         title="Estado del patio"
-        subtitle="Inventario fisico confirmado por el controlador"
+        subtitle="Ocupacion informada por Fase1. La identidad se muestra solo cuando el controlador la comunica."
         actions={
           <button className="btn-ghost" onClick={patio.reload}>
             Actualizar
@@ -110,8 +110,8 @@ export default function PatioPage() {
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold font-mono text-ink">POS {posicion}</span>
-                <StatusBadge color={bloqueada ? 'danger' : niveles.some((n) => n.contenedor_id) ? 'ok' : 'neutral'}>
-                  {bloqueada ? 'Bloqueada' : niveles.some((n) => n.contenedor_id) ? 'Ocupada' : 'Libre'}
+                <StatusBadge color={bloqueada ? 'danger' : niveles.some((n) => n.ocupada_fisica || n.contenedor_id) ? 'ok' : 'neutral'}>
+                  {bloqueada ? 'Bloqueada' : niveles.some((n) => n.ocupada_fisica || n.contenedor_id) ? 'Ocupada' : niveles.every((n) => n.confirmado) ? 'Libre' : 'Sin confirmar'}
                 </StatusBadge>
               </div>
               <div className="space-y-1.5">
@@ -126,7 +126,7 @@ export default function PatioPage() {
                     {n.contenedor_id ? (
                       <span className="font-mono text-ink">{n.contenedor_id}</span>
                     ) : (
-                      <span className="text-inkfaint">vacio</span>
+                      <span className="text-inkfaint">{n.ocupada_fisica ? 'Ocupada (ID no informado)' : n.confirmado ? 'vacio' : 'Sin confirmar'}</span>
                     )}
                   </div>
                 ))}

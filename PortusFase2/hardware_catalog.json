@@ -1,0 +1,5 @@
+{
+  "P001AAA": {"contenedor": "CT-001", "operacion": "DEPOSITO", "peso_declarado_g": 2670, "transportista": "trans_rapido", "naviera": "maersk"},
+  "P002BBB": {"contenedor": "CT-002", "operacion": "DEPOSITO", "peso_declarado_g": 470, "transportista": "trans_rapido", "naviera": "maersk"},
+  "P003CCC": {"contenedor": "CT-003", "operacion": "RETIRO", "peso_declarado_g": 65, "transportista": "trans_global", "naviera": "msc"}
+}

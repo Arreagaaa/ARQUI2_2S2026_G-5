@@ -252,3 +252,15 @@ EstadoPosicion yard_getEstado(int8_t posicion) {
   if (posicion < 0 || posicion >= YARD_POS_COUNT) return POS_BLOQUEADA;
   return patio[posicion].estado;
 }
+void yard_imprimirTelemetria() {
+  for (uint8_t p=0; p<YARD_POS_COUNT; p++) {
+    for (uint8_t n=0; n<YARD_MAX_NIVELES; n++) {
+      Serial.print(F("@PORTUS PatioCelda;posicion=")); Serial.print(p);
+      Serial.print(F(";nivel=")); Serial.print(n);
+      Serial.print(F(";contenedor="));
+      uint8_t id = patio[p].idContenedor[n];
+      if (id < MAX_CONTENEDORES) Serial.print(CONTENEDORES[id].codigo);
+      Serial.print(F(";ocupada=")); Serial.println(n < patio[p].nivelesOcupados ? 1 : 0);
+    }
+  }
+}

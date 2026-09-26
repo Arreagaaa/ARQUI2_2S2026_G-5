@@ -39,4 +39,6 @@ void crane_emergencyHalt();
 // corta de golpe.
 void crane_resetQueue();
 
+void crane_imprimirTelemetria();
+
 #endif

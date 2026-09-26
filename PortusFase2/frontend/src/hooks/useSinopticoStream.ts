@@ -4,26 +4,26 @@ import { useEffect, useRef, useState } from 'react'
 import type { EstadoTerminal, EventoSSE } from '../types'
 
 const ESTADO_INICIAL: EstadoTerminal = {
-  modo: 'NORMAL',
+  modo: 'DESCONOCIDO',
   enlace: 'DESCONECTADO',
   ultimo_latido_timestamp: '',
   garita: { estado: 'Libre', vehiculo: null },
   talanquera: 'Cerrada',
-  pesaje: { estado: 'Libre', ultimo_valor_kg: 0, resultado: 'Valido' },
+  pesaje: { estado: 'Libre', ultimo_valor_kg: null, resultado: 'Sin confirmar' },
   aguja: 'Recta',
   parqueo: {},
   transferencia: { estado: 'Libre', vehiculo: null },
   grua: {
-    estado: 'En reposo',
-    posicion: 0,
+    estado: 'Sin confirmar',
+    posicion: null,
     trabajo_en_curso: null,
-    cola_pendientes: 0,
+    cola_pendientes: null,
     suspendida: false,
-    referenciada: true,
+    referenciada: null,
     en_falla: false,
   },
   puerta_salida: 'Cerrada',
-  zona_espera: { cantidad_vehiculos: 0 },
+  zona_espera: { cantidad_vehiculos: null },
 }
 
 export interface SinopticoStream {
@@ -50,7 +50,8 @@ export function useSinopticoStream(): SinopticoStream {
     es.onmessage = (ev: MessageEvent<string>) => {
       try {
         const parsed = JSON.parse(ev.data) as EventoSSE
-        if (parsed.state) setEstado(parsed.state)
+        if (parsed.state) setEstado((previous) => ({ ...previous, ...parsed.state }))
+        if (parsed.data?.tipo !== 'PesajeEnVivo' && parsed.data?.tipo !== 'Latido') window.dispatchEvent(new Event('portus:refresh'))
         setUltimoEvento(parsed)
         setUltimoMensajeEn(new Date())
         setConectado(true)

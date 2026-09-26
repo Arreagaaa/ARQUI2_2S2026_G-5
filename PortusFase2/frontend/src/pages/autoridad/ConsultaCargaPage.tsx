@@ -2,7 +2,7 @@
 // permanencia de cualquier contenedor de la terminal, sin restriccion de propietario.
 import { useMemo, useState } from 'react'
 import { useApi } from '../../hooks/useApi'
-import { listManifiestos, listPatio } from '../../api/endpoints'
+import { api } from '../../api/client'
 import type { CeldaPatio, Manifiesto } from '../../types'
 import { DataTable, type Columna } from '../../components/DataTable'
 import { Panel, MonoId, StatusBadge } from '../../components/ui'
@@ -29,57 +29,8 @@ export default function ConsultaCargaPage() {
   const [filtroNaviera, setFiltroNaviera] = useState('')
   const [filtroAuth, setFiltroAuth] = useState('')
 
-  const patioQ = useApi(() => listPatio(), [])
-  const manifiestosQ = useApi(() => listManifiestos(), [])
-
-  const filas = useMemo<Fila[]>(() => {
-    const celdas: CeldaPatio[] = patioQ.data || []
-    const manifs: Manifiesto[] = manifiestosQ.data || []
-
-    const manifPorContenedor = new Map<string, Manifiesto>()
-    for (const m of manifs) manifPorContenedor.set(m.contenedor_id, m)
-
-    // Incluye tambien contenedores con manifiesto activo pero fuera del patio.
-    const enPatio = celdas.filter((c) => c.contenedor_id)
-    const idsEnPatio = new Set(enPatio.map((c) => c.contenedor_id))
-
-    const base: Fila[] = enPatio.map((c) => {
-      const m = manifPorContenedor.get(c.contenedor_id!)
-      return {
-        contenedor: c.contenedor_id!,
-        naviera: c.naviera_id || m?.naviera_id || '-',
-        ubicacion: `P${c.posicion} N${c.nivel}`,
-        estadoPatio: 'En patio',
-        bloqueada: c.bloqueada,
-        autorizacion: m?.estado_documental || c.estado_autorizacion,
-        canal: m?.canal_selectivo || null,
-        permanencia: c.permanencia_str,
-        excesiva: c.permanencia_excesiva,
-        ingreso: c.ingreso_at,
-        remociones: c.remociones,
-        manifiesto: m?.id || null,
-      }
-    })
-
-    const fuera: Fila[] = manifs
-      .filter((m) => !idsEnPatio.has(m.contenedor_id) && m.estado_documental !== 'ANULADO')
-      .map((m) => ({
-        contenedor: m.contenedor_id,
-        naviera: m.naviera_id,
-        ubicacion: 'Fuera de patio',
-        estadoPatio: 'En transito / garita',
-        bloqueada: 0,
-        autorizacion: m.estado_documental,
-        canal: m.canal_selectivo,
-        permanencia: '-',
-        excesiva: false,
-        ingreso: null,
-        remociones: 0,
-        manifiesto: m.id,
-      }))
-
-    return [...base, ...fuera]
-  }, [patioQ.data, manifiestosQ.data])
+  const carga = useApi(() => api.get<Fila[]>('/api/carga'), [])
+  const filas = carga.data || []
 
   const navieras = useMemo(() => Array.from(new Set(filas.map((f) => f.naviera))).sort(), [filas])
 
@@ -125,8 +76,8 @@ export default function ConsultaCargaPage() {
     { clave: 'man', encabezado: 'Manifiesto', ocultaEn: 'mobile', render: (f) => (f.manifiesto ? <MonoId>{f.manifiesto}</MonoId> : <span className="text-inkfaint">-</span>) },
   ]
 
-  const loading = patioQ.loading || manifiestosQ.loading
-  const error = patioQ.error || manifiestosQ.error
+  const loading = carga.loading
+  const error = carga.error
 
   return (
     <div className="space-y-4">
@@ -137,8 +88,8 @@ export default function ConsultaCargaPage() {
           <button
             className="btn-ghost"
             onClick={() => {
-              patioQ.reload()
-              manifiestosQ.reload()
+              carga.reload()
+              carga.reload()
             }}
           >
             Actualizar
@@ -153,8 +104,8 @@ export default function ConsultaCargaPage() {
           loading={loading}
           error={error}
           onRetry={() => {
-            patioQ.reload()
-            manifiestosQ.reload()
+            carga.reload()
+            carga.reload()
           }}
           vacio="No hay contenedores que coincidan con la busqueda."
           toolbar={

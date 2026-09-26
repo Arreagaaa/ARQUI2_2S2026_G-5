@@ -254,7 +254,7 @@ class MockArduinoMega:
 
         # 12. ModoMantenimiento: rechazar si hay trabajo de grua en ejecucion o vehiculo en transferencia
         if cmd == "ModoMantenimiento":
-            activar = ("activar" in payload.lower()) or ("valor=1" in payload.lower()) or ("activo=1" in payload.lower())
+            activar = ("desactivar" not in payload.lower()) and (("activar" in payload.lower()) or ("valor=1" in payload.lower()) or ("activo=1" in payload.lower()))
             if self.grua_trabajo_en_curso:
                 self._send_response("NAK", cmd, "error=Trabajo de grua en ejecucion")
                 return

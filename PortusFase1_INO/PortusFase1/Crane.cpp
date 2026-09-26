@@ -401,6 +401,18 @@ enum EstadoGrua {
 
 static EstadoGrua estado = G_INACTIVA;
 static TrabajoGrua *trabajoActual = nullptr;
+static uint32_t telemetriaInicioTrabajoMs = 0;
+static void imprimirEventoTrabajo(const char *evento) {
+  if (!trabajoActual) return;
+  Serial.print(F("@PORTUS GruaTrabajo;evento=")); Serial.print(evento);
+  Serial.print(F(";id=")); Serial.print(trabajoActual->id);
+  Serial.print(F(";turno_local=")); Serial.print(trabajoActual->idTurno);
+  Serial.print(F(";tipo=")); Serial.print((int)trabajoActual->tipo);
+  Serial.print(F(";origen=")); Serial.print(trabajoActual->posicionOrigen);
+  Serial.print(F(";destino=")); Serial.print(trabajoActual->posicionDestino);
+  Serial.print(F(";duracion_ms=")); Serial.println(millis()-telemetriaInicioTrabajoMs);
+}
+
 static uint32_t estadoDesdeMs = 0;
 static uint8_t alturaDetectadaPasos = 0;
 // AGREGADO: pasos reales que bajo el cabezal en el ultimo descenso (lo
@@ -518,6 +530,8 @@ void crane_update() {
         if (idx >= 0) {
           trabajoActual = &cola[idx];
           trabajoActual->estado = TRABAJO_EJECUTANDO;
+          telemetriaInicioTrabajoMs = millis();
+          imprimirEventoTrabajo("INICIO");
           irA(G_MOVER_A_ORIGEN);
         }
       }
@@ -779,6 +793,7 @@ void crane_update() {
         yard_liberarPosicion(trabajoActual->posicionOrigen - 1);
       }
       trabajoActual->estado = TRABAJO_COMPLETADO;
+      imprimirEventoTrabajo("FIN");
       irA(G_TRABAJO_COMPLETADO);
       break;
     }
@@ -790,7 +805,10 @@ void crane_update() {
     }
 
     case G_ERROR: {
-      if (trabajoActual != nullptr) trabajoActual->estado = TRABAJO_ERROR;
+      if (trabajoActual != nullptr) {
+        trabajoActual->estado = TRABAJO_ERROR;
+        imprimirEventoTrabajo("ERROR");
+      }
       trabajoActual = nullptr;
       detenerMovimientoInmediato();
       // AGREGADO: al entrar a G_ERROR, prepara el reset de los
@@ -805,4 +823,15 @@ void crane_update() {
       break;
     }
   }
+}
+void crane_imprimirTelemetria() {
+  uint8_t pendientes=0;
+  for (uint8_t i=0; i<MAX_TRABAJOS; i++)
+    if (cola[i].activo && cola[i].estado == TRABAJO_PENDIENTE) pendientes++;
+  Serial.print(F("@PORTUS GruaDetalle;estado=")); Serial.print((int)estado);
+  Serial.print(F(";posicion=")); Serial.print(posicionActual);
+  Serial.print(F(";cola=")); Serial.print(pendientes);
+  Serial.print(F(";trabajo="));
+  if (trabajoActual) Serial.print(trabajoActual->id);
+  Serial.println();
 }

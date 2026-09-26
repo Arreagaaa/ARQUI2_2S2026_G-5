@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useApi } from '../../hooks/useApi'
 import { useAuth } from '../../hooks/useAuth'
-import { listManifiestos, listPatio } from '../../api/endpoints'
+import { api } from '../../api/client'
 import type { Manifiesto, CeldaPatio } from '../../types'
 import { DataTable, type Columna } from '../../components/DataTable'
 import { Panel, MonoId, StatusBadge } from '../../components/ui'
@@ -12,7 +12,7 @@ import { fmtFechaHora } from '../../utils/format'
 
 type Fila = {
   contenedor: string
-  manifiesto: string
+  manifiesto: string | null
   ubicacion: string
   estado: string
   estadoDoc: string
@@ -27,44 +27,14 @@ export default function MisContenedoresPage() {
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState('')
 
-  const manifiestosQ = useApi(() => listManifiestos(), [])
-  const patioQ = useApi(() => listPatio(), [])
-
-  const filas = useMemo<Fila[]>(() => {
-    // listManifiestos ya viene filtrado por la naviera en sesion del lado del servidor.
-    const propios = manifiestosQ.data || []
-    const celdas: CeldaPatio[] = patioQ.data || []
-    const posPorContenedor = new Map<string, CeldaPatio>()
-    for (const c of celdas) {
-      if (c.contenedor_id) posPorContenedor.set(c.contenedor_id, c)
-    }
-
-    return propios.map((m: Manifiesto) => {
-      const celda = posPorContenedor.get(m.contenedor_id)
-      const enPatio = !!celda
-      return {
-        contenedor: m.contenedor_id,
-        manifiesto: m.id,
-        ubicacion: enPatio ? `P${celda!.posicion} N${celda!.nivel}` : 'En transito / garita',
-        estado: enPatio
-          ? 'En patio'
-          : m.estado_documental === 'LEVANTE_OTORGADO'
-            ? 'Autorizado sin ingreso'
-            : 'Sin posicion',
-        estadoDoc: m.estado_documental,
-        canal: m.canal_selectivo,
-        permanencia: enPatio ? celda!.permanencia_str : '-',
-        excesiva: enPatio ? celda!.permanencia_excesiva : false,
-        ingreso: enPatio ? celda!.ingreso_at : null,
-      }
-    })
-  }, [manifiestosQ.data, patioQ.data])
+  const carga = useApi(() => api.get<Fila[]>('/api/carga'), [])
+  const filas = carga.data || []
 
   const filtradas = useMemo(() => {
     let lista = filas
     if (busqueda.trim()) {
       const q = busqueda.trim().toLowerCase()
-      lista = lista.filter((f) => f.contenedor.toLowerCase().includes(q) || f.manifiesto.toLowerCase().includes(q))
+      lista = lista.filter((f) => f.contenedor.toLowerCase().includes(q) || (f.manifiesto || '').toLowerCase().includes(q))
     }
     if (filtroEstado) lista = lista.filter((f) => f.estadoDoc === filtroEstado)
     return lista
@@ -94,8 +64,8 @@ export default function MisContenedoresPage() {
     { clave: 'ing', encabezado: 'Ingreso', ocultaEn: 'tablet', render: (f) => <span className="font-mono text-2xs">{fmtFechaHora(f.ingreso)}</span> },
   ]
 
-  const loading = manifiestosQ.loading || patioQ.loading
-  const error = manifiestosQ.error || patioQ.error
+  const loading = carga.loading
+  const error = carga.error
 
   return (
     <div className="space-y-4">
@@ -106,8 +76,8 @@ export default function MisContenedoresPage() {
           <button
             className="btn-ghost"
             onClick={() => {
-              manifiestosQ.reload()
-              patioQ.reload()
+              carga.reload()
+              carga.reload()
             }}
           >
             Actualizar
@@ -118,12 +88,11 @@ export default function MisContenedoresPage() {
         <DataTable
           columnas={columnas}
           filas={filtradas}
-          claveFila={(f) => f.manifiesto}
+          claveFila={(f) => f.contenedor}
           loading={loading}
           error={error}
           onRetry={() => {
-            manifiestosQ.reload()
-            patioQ.reload()
+            carga.reload()
           }}
           vacio="No hay contenedores asociados a sus manifiestos."
           toolbar={

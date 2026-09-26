@@ -5,7 +5,7 @@ segun seccion 13 de la especificacion de PORTUS Fase 2.
 
 import io
 import csv
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from .database import get_db_connection
 
@@ -25,28 +25,28 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     params_citas = []
 
     if inicio_iso:
-        filtro_turnos += " AND tiempo_inicio >= ?"
-        filtro_turnos_gen += " AND tiempo_inicio >= ?"
-        filtro_grua += " AND timestamp >= ?"
-        filtro_ret += " AND tiempo_inicio >= ?"
+        filtro_turnos += " AND julianday(tiempo_inicio) >= julianday(?)"
+        filtro_turnos_gen += " AND julianday(tiempo_inicio) >= julianday(?)"
+        filtro_grua += " AND julianday(timestamp) >= julianday(?)"
+        filtro_ret += " AND julianday(tiempo_inicio) >= julianday(?)"
         filtro_citas += " AND fecha >= ?"
         params_turnos.append(inicio_iso)
         params_turnos_gen.append(inicio_iso)
         params_grua.append(inicio_iso)
         params_ret.append(inicio_iso)
-        params_citas.append(inicio_iso[:10])
+        params_citas.append(datetime.fromisoformat(inicio_iso).astimezone(timezone(timedelta(hours=-6))).date().isoformat() if datetime.fromisoformat(inicio_iso).tzinfo else inicio_iso[:10])
 
     if fin_iso:
-        filtro_turnos += " AND tiempo_inicio <= ?"
-        filtro_turnos_gen += " AND tiempo_inicio <= ?"
-        filtro_grua += " AND timestamp <= ?"
-        filtro_ret += " AND tiempo_inicio <= ?"
+        filtro_turnos += " AND julianday(tiempo_inicio) <= julianday(?)"
+        filtro_turnos_gen += " AND julianday(tiempo_inicio) <= julianday(?)"
+        filtro_grua += " AND julianday(timestamp) <= julianday(?)"
+        filtro_ret += " AND julianday(tiempo_inicio) <= julianday(?)"
         filtro_citas += " AND fecha <= ?"
         params_turnos.append(fin_iso)
         params_turnos_gen.append(fin_iso)
         params_grua.append(fin_iso)
         params_ret.append(fin_iso)
-        params_citas.append(fin_iso[:10])
+        params_citas.append(datetime.fromisoformat(fin_iso).astimezone(timezone(timedelta(hours=-6))).date().isoformat() if datetime.fromisoformat(fin_iso).tzinfo else fin_iso[:10])
 
     # 1. Turnos cerrados y retiros
     turnos_cerrados = conn.execute(f"SELECT COUNT(*) as c FROM turnos {filtro_turnos}", params_turnos).fetchone()["c"]
@@ -56,7 +56,7 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     ).fetchone()["c"]
 
     # Remociones registradas en el patio
-    total_remociones = conn.execute("SELECT SUM(remociones) as s FROM patio_posiciones").fetchone()["s"] or 0
+    total_remociones = conn.execute(f"SELECT COUNT(*) as s FROM grua_ciclos {filtro_grua} AND tipo_trabajo='REPOSICION_PATIO' AND exitoso=1", params_grua).fetchone()["s"]
     remociones_por_retiro = round(total_remociones / retiros_completados, 2) if retiros_completados > 0 else 0.0
 
     # 2. Ciclos de grua
@@ -84,11 +84,21 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
 
     # 6. Longitud maxima de fila de espera
     # Calculada en base a max turnos en Garita / EnPesaje simultaneos
-    max_espera_row = conn.execute(
-        f"SELECT COUNT(*) as c FROM turnos {filtro_turnos_gen} AND estado_actual IN ('Programado', 'EnGarita')",
-        params_turnos_gen
-    ).fetchone()
-    max_espera = max_espera_row["c"] if max_espera_row else 0
+    # Actual observed queue samples, never the current number of open turns.
+    import json
+    samples = conn.execute("SELECT timestamp, datos FROM controller_events WHERE tipo='EstacionesDetalle'").fetchall()
+    lower = datetime.fromisoformat(inicio_iso) if inicio_iso else None
+    upper = datetime.fromisoformat(fin_iso) if fin_iso else None
+    observed = []
+    for row in samples:
+        moment = datetime.fromisoformat(row['timestamp'])
+        low = lower.replace(tzinfo=moment.tzinfo) if lower and lower.tzinfo is None else lower
+        high = upper.replace(tzinfo=moment.tzinfo) if upper and upper.tzinfo is None else upper
+        if (not low or moment >= low) and (not high or moment <= high):
+            observed.append(int(json.loads(row['datos']).get('espera', 0)))
+    max_espera = max(observed, default=0)
+    avg_cycle = conn.execute(f"SELECT AVG(tiempo_ciclo_seg) FROM grua_ciclos {filtro_grua}", params_grua).fetchone()[0] or 0
+    physical_cycles = conn.execute("SELECT COUNT(*) FROM controller_events WHERE tipo='GruaTrabajo'").fetchone()[0]
 
     # 7. Porcentaje de citas cumplidas en ventana
     total_citas = conn.execute(f"SELECT COUNT(*) as c FROM citas {filtro_citas}", params_citas).fetchone()["c"]
@@ -111,7 +121,9 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     return {
         "remociones_por_contenedor_retirado": remociones_por_retiro,
         "ciclos_grua_por_operacion": ciclos_por_operacion,
-        "distancia_total_grua_m": distancia_m,
+        "distancia_total_grua_m": None if physical_cycles else distancia_m,
+        "tiempo_promedio_ciclo_seg": round(avg_cycle, 2),
+        "observaciones": "La distancia requiere calibracion fisica. La fila corresponde al sensor de espera (presencia 0/1).",
         "tiempo_promedio_camion_seg": round(tiempo_camion_prom_seg, 1),
         "tiempo_promedio_camion_min": round(tiempo_camion_prom_seg / 60.0, 1),
         "tiempo_promedio_retencion_seg": round(tiempo_ret_prom_seg, 1),
@@ -140,7 +152,7 @@ def export_report_csv(etiqueta: str, metricas: Dict[str, Any]) -> str:
     writer.writerow(["Metrica", "Valor", "Unidad"])
     writer.writerow(["Remociones por contenedor retirado", metricas["remociones_por_contenedor_retirado"], "remociones/retiro"])
     writer.writerow(["Ciclos de grua por operacion completada", metricas["ciclos_grua_por_operacion"], "ciclos/turno"])
-    writer.writerow(["Distancia total recorrida por la grua", metricas["distancia_total_grua_m"], "metros"])
+    writer.writerow(["Distancia total recorrida por la grua", metricas["distancia_total_grua_m"] if metricas["distancia_total_grua_m"] is not None else "SIN MEDICION", "metros"])
     writer.writerow(["Tiempo promedio de camion en la terminal", metricas["tiempo_promedio_camion_seg"], "segundos"])
     writer.writerow(["Tiempo promedio de retencion", metricas["tiempo_promedio_retencion_seg"], "segundos"])
     writer.writerow(["Longitud maxima de la fila de espera", metricas["longitud_maxima_fila_espera"], "vehiculos"])

@@ -53,7 +53,7 @@ export default function CitasPage() {
   }, [citas.data, bloqueadas.data])
 
   const total = franjas.reduce((acc, f) => acc + f.citas.length, 0)
-  const conContenido = franjas.filter((f) => f.citas.length > 0 || f.bloqueada)
+  const conContenido = franjas
   const pctCumplimiento = useMemo(() => {
     const conVentana = (citas.data || []).filter((c) => c.estado === 'CUMPLIDA' || c.estado === 'VENCIDA')
     if (conVentana.length === 0) return null

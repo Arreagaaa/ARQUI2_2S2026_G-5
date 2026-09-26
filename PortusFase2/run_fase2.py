@@ -21,6 +21,16 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+# Configure before importing app/database (which initializes SQLite).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+except ImportError:
+    pass
+mock_requested = "--mock" in sys.argv or os.environ.get("PORTUS_USE_MOCK", "false").lower() in ("true", "1", "yes")
+os.environ.setdefault("PORTUS_DEMO_DATA", "true" if mock_requested else "false")
+os.environ.setdefault("PORTUS_DB_PATH", os.path.join(os.path.dirname(__file__), "server", "portus_mock.db" if mock_requested else "portus_hardware.db"))
+
 from PortusFase2.server.database import init_database
 from PortusFase2.bridge.serial_bridge import SerialMQTTBridge
 from PortusFase2.server.app import app, init_mqtt
@@ -110,7 +120,7 @@ def main():
 
     # 1. Base de datos
     logging.info("Paso 1: Inicializando base de datos SQLite y semillas...")
-    init_database()
+    logging.info("Base de datos: %s", os.environ["PORTUS_DB_PATH"])
 
     # 2. Broker MQTT
     logging.info("Paso 2: Verificando disponibilidad de intermediario MQTT...")
@@ -125,11 +135,10 @@ def main():
         mqtt_port=args.mqtt_port,
         use_mock=args.mock
     )
+    init_mqtt()
     bridge.start()
 
-    # 4. Cliente MQTT en Flask
-    logging.info("Paso 4: Conectando aplicacion web Flask al bus MQTT...")
-    init_mqtt()
+
 
     # 5. Servidor Web
     print("-" * 65)
