@@ -199,8 +199,8 @@ export interface FranjaBloqueada {
 }
 
 export interface Metricas {
-  remociones_por_contenedor_retirado: number
-  ciclos_grua_por_operacion: number
+  remociones_por_contenedor_retirado: number | null
+  ciclos_grua_por_operacion: number | null
   distancia_total_grua_m: number | null
   tiempo_promedio_ciclo_seg: number
   observaciones?: string
@@ -214,7 +214,7 @@ export interface Metricas {
   resumen_conteos: {
     turnos_cerrados: number
     retiros_completados: number
-    total_ciclos_grua: number
+    total_ciclos_grua: number | null
     total_citas: number
     citas_en_ventana: number
   }

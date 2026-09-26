@@ -109,6 +109,7 @@ class HardwareTelemetryTest(unittest.TestCase):
 
     def test_all_roles_read_views_and_naviera_data_is_isolated(self):
         from PortusFase2.server import app as server
+        server.terminal_state['protocolo'] = 'fase1'
         self.emit('SnapshotFase1', {'cantidad':1,'paro':False,'turnos':[
             {'turno_local':'0','placa':'P001AAA','estacion':'5','retenido':'NO','entrada_kg':'1.16','salida_kg':'0'}]})
         users = [('operador1','terminal123'),('maersk','maersk123'),('msc','msc123'),('agente1','agente123'),('sat1','sat123')]
@@ -117,8 +118,10 @@ class HardwareTelemetryTest(unittest.TestCase):
             self.assertEqual(client.post('/api/login',json={'username':user,'password':password}).status_code,200)
             for path in ('/api/manifiestos','/api/declaraciones','/api/patio','/api/turnos'):
                 self.assertEqual(client.get(path).status_code,200,(user,path))
+            self.assertEqual(client.get('/api/carga').status_code, 200)
             if user=='msc':
                 self.assertEqual(client.get('/api/turnos').json,[])
+                self.assertEqual(client.get('/api/carga').json,[])
                 self.assertEqual(client.get('/api/turnos/1/timeline').status_code,404)
                 stream=client.get('/api/stream/events',buffered=False)
                 first=next(iter(stream.response)).decode()
@@ -126,8 +129,16 @@ class HardwareTelemetryTest(unittest.TestCase):
                 self.assertNotIn('garita',first)
                 stream.close()
             if user=='operador1':
+                self.assertEqual(client.post('/api/cmd/remote',json={'comando':'AbrirTalanquera'}).status_code,409)
                 for path in ('/api/retenciones','/api/grua/historial','/api/alarmas','/api/citas','/api/reportes/calcular'):
                     self.assertEqual(client.get(path).status_code,200,path)
+            if user=='maersk':
+                rows = client.get('/api/carga').json
+                self.assertEqual(rows[0]['contenedor'], 'CT-001')
+                self.assertEqual(rows[0]['estado'], 'EnTransferencia')
+                self.assertEqual(client.post('/api/manifiestos',json={
+                    'contenedor_id':'CT-003','tipo_operacion':'RETIRO',
+                    'peso_declarado':65,'transportista_id':'trans_global'}).status_code,403)
 
 
 if __name__ == '__main__':

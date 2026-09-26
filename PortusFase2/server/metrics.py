@@ -99,6 +99,8 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     max_espera = max(observed, default=0)
     avg_cycle = conn.execute(f"SELECT AVG(tiempo_ciclo_seg) FROM grua_ciclos {filtro_grua}", params_grua).fetchone()[0] or 0
     physical_cycles = conn.execute("SELECT COUNT(*) FROM controller_events WHERE tipo='GruaTrabajo'").fetchone()[0]
+    coarse_crane = conn.execute("SELECT COUNT(*) FROM controller_events WHERE tipo='GruaEstado'").fetchone()[0]
+    cycles_unknown = bool(coarse_crane and not physical_cycles)
 
     # 7. Porcentaje de citas cumplidas en ventana
     total_citas = conn.execute(f"SELECT COUNT(*) as c FROM citas {filtro_citas}", params_citas).fetchone()["c"]
@@ -119,9 +121,9 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     conn.close()
 
     return {
-        "remociones_por_contenedor_retirado": remociones_por_retiro,
-        "ciclos_grua_por_operacion": ciclos_por_operacion,
-        "distancia_total_grua_m": None if physical_cycles else distancia_m,
+        "remociones_por_contenedor_retirado": None if cycles_unknown else remociones_por_retiro,
+        "ciclos_grua_por_operacion": None if cycles_unknown else ciclos_por_operacion,
+        "distancia_total_grua_m": None if physical_cycles or cycles_unknown else distancia_m,
         "tiempo_promedio_ciclo_seg": round(avg_cycle, 2),
         "observaciones": "La distancia requiere calibracion fisica. La fila corresponde al sensor de espera (presencia 0/1).",
         "tiempo_promedio_camion_seg": round(tiempo_camion_prom_seg, 1),
@@ -134,7 +136,7 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
         "resumen_conteos": {
             "turnos_cerrados": turnos_cerrados,
             "retiros_completados": retiros_completados,
-            "total_ciclos_grua": total_ciclos,
+            "total_ciclos_grua": None if cycles_unknown else total_ciclos,
             "total_citas": total_citas,
             "citas_en_ventana": citas_cumplidas
         }
@@ -150,8 +152,8 @@ def export_report_csv(etiqueta: str, metricas: Dict[str, Any]) -> str:
     writer.writerow(["Fecha de generacion", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
     writer.writerow([])
     writer.writerow(["Metrica", "Valor", "Unidad"])
-    writer.writerow(["Remociones por contenedor retirado", metricas["remociones_por_contenedor_retirado"], "remociones/retiro"])
-    writer.writerow(["Ciclos de grua por operacion completada", metricas["ciclos_grua_por_operacion"], "ciclos/turno"])
+    writer.writerow(["Remociones por contenedor retirado", metricas["remociones_por_contenedor_retirado"] if metricas["remociones_por_contenedor_retirado"] is not None else "SIN MEDICION", "remociones/retiro"])
+    writer.writerow(["Ciclos de grua por operacion completada", metricas["ciclos_grua_por_operacion"] if metricas["ciclos_grua_por_operacion"] is not None else "SIN MEDICION", "ciclos/turno"])
     writer.writerow(["Distancia total recorrida por la grua", metricas["distancia_total_grua_m"] if metricas["distancia_total_grua_m"] is not None else "SIN MEDICION", "metros"])
     writer.writerow(["Tiempo promedio de camion en la terminal", metricas["tiempo_promedio_camion_seg"], "segundos"])
     writer.writerow(["Tiempo promedio de retencion", metricas["tiempo_promedio_retencion_seg"], "segundos"])

@@ -146,6 +146,7 @@ export default function AppShell() {
           )}
         </header>
 
+        {stream.estado.protocolo === 'fase1' && <div className="border-b border-warn/40 bg-warn/10 px-4 py-2 text-xs text-warn">Maqueta Fase1 en control local: documentos y citas son registros de Fase2; las maniobras y accesos los decide el Mega. Las vistas fisicas muestran solo datos recibidos.</div>}
         <main className="flex-1 w-full max-w-[1600px] mx-auto px-3 sm:px-4 py-4">
           <Outlet context={{ stream }} />
         </main>

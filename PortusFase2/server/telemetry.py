@@ -74,8 +74,8 @@ def _turn(conn, plate, timestamp, local=None):
     config = CATALOG.get(plate)
     if not config:
         return None  # Unknown vehicle cannot be attributed to another carrier.
-    manifest = conn.execute("SELECT * FROM manifiestos WHERE contenedor_id=? AND tipo_operacion=? ORDER BY created_at DESC LIMIT 1",
-                            (config['contenedor'], config['operacion'])).fetchone()
+    manifest = conn.execute("SELECT * FROM manifiestos WHERE contenedor_id=? AND tipo_operacion=? AND naviera_id=? ORDER BY created_at DESC LIMIT 1",
+                            (config['contenedor'], config['operacion'],config['naviera'])).fetchone()
     next_id = conn.execute('SELECT COALESCE(MAX(id),0)+1 FROM turnos').fetchone()[0]
     cursor = conn.execute('''INSERT INTO turnos(codigo_turno,placa_vehiculo,transportista_id,contenedor_id,
         manifiesto_id,tipo_operacion,estado_actual,estacion_actual,peso_declarado_g,tiempo_inicio,hardware_key,naviera_id)

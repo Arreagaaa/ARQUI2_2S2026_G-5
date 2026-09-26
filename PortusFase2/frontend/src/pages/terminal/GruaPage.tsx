@@ -90,7 +90,7 @@ export default function GruaPage() {
       </MonoId>
     )},
     { clave: 'ciclo', encabezado: 'Ciclo', render: (c) => <span className="font-mono">{c.tiempo_ciclo_seg}s</span> },
-    { clave: 'dist', encabezado: 'Distancia', ocultaEn: 'mobile', render: (c) => <span className="font-mono">{c.distancia_recorrida_mm} mm</span> },
+    { clave: 'dist', encabezado: 'Distancia', ocultaEn: 'mobile', render: (c) => <span className="font-mono">{c.distancia_recorrida_mm ? `${c.distancia_recorrida_mm} mm` : 'Sin medicion'}</span> },
     {
       clave: 'res',
       encabezado: 'Resultado',
