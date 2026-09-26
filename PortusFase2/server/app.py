@@ -6,6 +6,7 @@ y endpoints REST para la cadena documental y los comandos remotos.
 """
 
 import os
+import secrets
 import copy
 import json
 import uuid
@@ -38,7 +39,7 @@ from ..mensajeria.messaging_service import TransportistaMessagingService, genera
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 app = Flask(__name__, static_folder=None)
-app.secret_key = "portus_secret_key_usac_arqui2_2026"
+app.secret_key = os.environ.get("PORTUS_SESSION_SECRET") or secrets.token_hex(32)
 
 # Colas de transmision en tiempo real para clientes SSE conectados
 event_queues = []
@@ -165,8 +166,8 @@ def protect_operational_data():
         return jsonify({'error': 'Acceso exclusivo de TERMINAL'}), 403
     if user['rol'] not in ('TERMINAL','AUTORIDAD') and path.startswith('/api/retenciones'):
         return jsonify({'error': 'Rol sin acceso a retenciones'}), 403
-    physical_action = path.startswith('/api/patio/posicion/') or path == '/api/cmd/remote' or (path == '/api/turnos' and request.method=='POST')
-    if physical_action and request.method=='POST' and user['rol']!='TERMINAL':
+    physical_action = path.startswith('/api/patio/posicion/') or path == '/api/cmd/remote' or (path == '/api/turnos' and request.method=='POST') or (path.startswith('/api/turnos/') and (path.endswith('/retener-manual') or path.endswith('/anular'))) or (path.startswith('/api/retenciones/') and path.endswith('/resolver'))
+    if physical_action and request.method=='POST' and terminal_state.get('protocolo')=='fase1' and user['rol']!='TERMINAL':
         return jsonify({'error':'Acceso exclusivo de TERMINAL'}), 403
     if physical_action and request.method=='POST' and terminal_state.get('protocolo')=='fase1':
         return jsonify({'error': 'Fase1 opera localmente. Esta conexion supervisa el hardware; no admite esta orden remota.'}), 409
@@ -300,7 +301,7 @@ def sse_events():
             return event
         # Other roles receive invalidation only; REST applies ownership filters.
         return {'topic': 'portus/refresh', 'data': {'timestamp': datetime.now(timezone.utc).isoformat()},
-                'state': {k: terminal_state[k] for k in ('enlace', 'ultimo_latido_timestamp', 'fuente')}}
+                'state': {k: terminal_state[k] for k in ('enlace', 'ultimo_latido_timestamp', 'fuente', 'protocolo')}}
     def event_generator():
         q = queue.Queue(maxsize=100)
         with event_queues_lock:
@@ -386,6 +387,11 @@ def create_manifiesto():
     user = session["user"]
 
     contenedor_id = data.get("contenedor_id", "").strip().upper()
+    from .telemetry import CATALOG
+    configured = next((entry for entry in CATALOG.values() if entry['contenedor']==contenedor_id), None)
+    if configured and configured['naviera'] != user['username']:
+        return jsonify({'error':'El contenedor fisico esta asociado a otra naviera'}), 403
+
     tipo_operacion = data.get("tipo_operacion")
     peso_declarado = data.get("peso_declarado")
     tolerancia = data.get("tolerancia", 5.0)

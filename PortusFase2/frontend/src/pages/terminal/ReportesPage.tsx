@@ -119,8 +119,8 @@ export default function ReportesPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <Metrica etiqueta="Remociones por contenedor retirado" valor={m.remociones_por_contenedor_retirado} unidad="rem/retiro" />
-            <Metrica etiqueta="Ciclos de grua por operacion completada" valor={m.ciclos_grua_por_operacion} unidad="ciclos/turno" />
+            <Metrica etiqueta="Remociones por contenedor retirado" valor={m.remociones_por_contenedor_retirado ?? 'Sin medicion'} unidad="rem/retiro" />
+            <Metrica etiqueta="Ciclos de grua por operacion completada" valor={m.ciclos_grua_por_operacion ?? 'Sin medicion'} unidad="ciclos/turno" />
             <Metrica etiqueta="Distancia total recorrida por la grua" valor={m.distancia_total_grua_m ?? 'Sin medicion'} unidad="metros" />
             <Metrica etiqueta="Tiempo promedio de camion en la terminal" valor={m.tiempo_promedio_camion_min} unidad={`min (${m.tiempo_promedio_camion_seg}s)`} />
             <Metrica etiqueta="Tiempo promedio de retencion" valor={m.tiempo_promedio_retencion_min} unidad={`min (${m.tiempo_promedio_retencion_seg}s)`} />
@@ -167,7 +167,7 @@ export default function ReportesPage() {
                 {[
                   ['Turnos cerrados', m.resumen_conteos.turnos_cerrados],
                   ['Retiros completados', m.resumen_conteos.retiros_completados],
-                  ['Ciclos de grua', m.resumen_conteos.total_ciclos_grua],
+                  ['Ciclos de grua', m.resumen_conteos.total_ciclos_grua ?? 'Sin medicion'],
                   ['Citas totales', m.resumen_conteos.total_citas],
                   ['Citas en ventana', m.resumen_conteos.citas_en_ventana],
                   ['Duracion promedio de ciclo', fmtSegundos(m.tiempo_promedio_ciclo_seg)],
