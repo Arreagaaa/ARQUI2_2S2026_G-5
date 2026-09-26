@@ -6,6 +6,7 @@ y endpoints REST para la cadena documental y los comandos remotos.
 """
 
 import os
+import copy
 import json
 import uuid
 import time
@@ -44,31 +45,11 @@ event_queues = []
 event_queues_lock = threading.Lock()
 
 # Ultimo estado conocido de la maqueta y del enlace
-terminal_state = {
-    "modo": "NORMAL",
-    "enlace": "CONECTADO",
-    "ultimo_latido_timestamp": datetime.now(timezone.utc).isoformat(),
-    "garita": {"estado": "Libre", "vehiculo": None},
-    "talanquera": "Cerrada",
-    "pesaje": {"estado": "Libre", "ultimo_valor_kg": 0.0, "resultado": "Valido"},
-    "aguja": "Recta",
-    "parqueo": {1: None, 2: None, 3: None},
-    "transferencia": {"estado": "Libre", "vehiculo": None},
-    "grua": {
-        "estado": "En reposo",
-        "posicion": 0,
-        "trabajo_en_curso": None,
-        "cola_pendientes": 0,
-        "suspendida": False,
-        "referenciada": True,
-        "en_falla": False
-    },
-    "puerta_salida": "Cerrada",
-    "zona_espera": {"cantidad_vehiculos": 0}
-}
-
 # Servicio de mensajeria
 init_database()
+from .telemetry import initial_state, process_event
+terminal_state = initial_state()
+telemetry_lock = threading.RLock()
 msg_service = TransportistaMessagingService()
 
 # Cliente MQTT del servidor
@@ -112,7 +93,14 @@ def dispatch_event_to_sse(event_data: dict):
         dead_queues = []
         for q in event_queues:
             try:
-                q.put_nowait(event_data)
+                q.put_nowait(copy.deepcopy(event_data))
+            except queue.Full:
+                # Slow client: discard oldest snapshot, keep current state.
+                try:
+                    q.get_nowait()
+                    q.put_nowait(copy.deepcopy(event_data))
+                except queue.Empty:
+                    pass
             except Exception:
                 dead_queues.append(q)
         for dq in dead_queues:
@@ -122,162 +110,15 @@ def dispatch_event_to_sse(event_data: dict):
 
 def on_mqtt_message(client, userdata, msg):
     try:
-        payload_str = msg.payload.decode("utf-8")
-        data = json.loads(payload_str)
-        topic = msg.topic
-        datos = data.get("datos", {})
-
-        now_str = datetime.now(timezone.utc).isoformat()
-        terminal_state["ultimo_latido_timestamp"] = now_str
-
-        # Actualizar estado interno segun el topico
-        if topic == "portus/evt/estado":
-            if data.get("tipo") == "EnlacePerdido":
-                terminal_state["enlace"] = "DESCONECTADO"
-            elif data.get("tipo") == "EnlaceRestablecido":
-                terminal_state["enlace"] = "CONECTADO"
-            else:
-                terminal_state["enlace"] = "CONECTADO"
-                terminal_state["modo"] = datos.get("modo", terminal_state["modo"])
-                terminal_state["talanquera"] = datos.get("talanquera", terminal_state["talanquera"])
-                terminal_state["aguja"] = datos.get("aguja", terminal_state["aguja"])
-                terminal_state["grua"]["posicion"] = datos.get("grua_pos", terminal_state["grua"]["posicion"])
-                terminal_state["grua"]["cola_pendientes"] = datos.get("cola_grua", terminal_state["grua"]["cola_pendientes"])
-                # Solo se actualizan si la trama trae el dato: el INO real (legacy)
-                # no incluye grua_ref/susp/falla y forzarlos a "no" en cada evento
-                # marcaba la grua como no referenciada aunque si lo estuviera.
-                if "grua_susp" in datos:
-                    terminal_state["grua"]["suspendida"] = (datos["grua_susp"] == "SI")
-                if "grua_ref" in datos:
-                    terminal_state["grua"]["referenciada"] = (datos["grua_ref"] == "SI")
-                if "grua_falla" in datos:
-                    terminal_state["grua"]["en_falla"] = (datos["grua_falla"] == "SI")
-                # El latido mantiene el parqueo del sinoptico alineado sin polling al navegador
+        if not (msg.topic.startswith("portus/evt/") or msg.topic == "portus/cmd/respuesta"):
+            return
+        data = json.loads(msg.payload.decode("utf-8"))
+        with telemetry_lock:
+            if process_event(terminal_state, data, msg.topic):
                 _refresh_parqueo_state()
-
-        elif topic == "portus/evt/garita":
-            tipo_ev = data.get("tipo")
-            if tipo_ev == "GaritaIdentificacion":
-                uid_raw = str(datos.get("uid", "")).strip().upper()
-                terminal_state["garita"]["estado"] = "Validando"
-                conn = get_db_connection()
-                camion = conn.execute(
-                    "SELECT placa, transportista_id FROM catalogo_camiones WHERE rfid_uid = ? OR placa = ?",
-                    (uid_raw, uid_raw)
-                ).fetchone()
-                placa = camion["placa"] if camion else uid_raw
-                terminal_state["garita"]["vehiculo"] = placa
-
-                if camion:
-                    turno_activo = conn.execute("""
-                    SELECT id FROM turnos WHERE placa_vehiculo = ? AND estado_actual NOT IN ('Cerrado', 'Anulado')
-                    """, (placa,)).fetchone()
-                    if not turno_activo:
-                        manif = conn.execute("""
-                        SELECT m.* FROM manifiestos m
-                        WHERE m.transportista_id = ? AND m.estado_documental = 'LEVANTE_OTORGADO'
-                          AND m.id NOT IN (SELECT COALESCE(manifiesto_id, '') FROM turnos WHERE estado_actual NOT IN ('Cerrado', 'Anulado'))
-                        ORDER BY m.id ASC LIMIT 1
-                        """, (camion["transportista_id"],)).fetchone()
-                        if manif:
-                            tid = create_turn(
-                                placa=placa,
-                                transportista_id=camion["transportista_id"],
-                                contenedor_id=manif["contenedor_id"],
-                                tipo_operacion=manif["tipo_operacion"],
-                                manifiesto_id=manif["id"],
-                                peso_declarado_g=manif["peso_declarado_g"]
-                            )
-                            terminal_state["garita"]["estado"] = "Autorizada"
-                            terminal_state["talanquera"] = "Abierta"
-                            logging.info("Turno %d creado automaticamente para vehiculo %s", tid, placa)
-                conn.close()
-            elif "RECHAZADO" in str(datos):
-                terminal_state["garita"]["estado"] = "Rechazada"
-            else:
-                terminal_state["garita"]["estado"] = "Autorizada"
-
-        elif topic == "portus/evt/pesaje":
-            terminal_state["pesaje"]["estado"] = "Medicion valida"
-            peso_val = None
-            if "peso" in datos:
-                try:
-                    peso_val = float(datos["peso"])
-                except Exception:
-                    pass
-            else:
-                detalle = str(datos.get("detalle", ""))
-                if "Peso leido:" in detalle:
-                    try:
-                        token = detalle.split("Peso leido:")[1].split("kg")[0].strip()
-                        peso_val = float(token)
-                    except Exception:
-                        pass
-            if peso_val is not None:
-                terminal_state["pesaje"]["ultimo_valor_kg"] = peso_val
-                conn = get_db_connection()
-                t_act = conn.execute("""
-                SELECT * FROM turnos WHERE estado_actual IN ('EnGarita', 'EnPesajeEntrada') ORDER BY id DESC LIMIT 1
-                """).fetchone()
-                if t_act:
-                    peso_g = int(peso_val * 1000)
-                    conn.execute("UPDATE turnos SET peso_medido_entrada_g = ? WHERE id = ?", (peso_g, t_act["id"]))
-                    conn.commit()
-                    transition_turn(t_act["id"], "EnPesajeEntrada", estacion="PESAJE", origen="controlador",
-                                    detalle=f"Lectura bascula entrada: {peso_val} kg",
-                                    valores={"peso_kg": peso_val})
-                conn.close()
-
-        elif topic == "portus/evt/aguja":
-            terminal_state["aguja"] = datos.get("posicion", terminal_state["aguja"])
-
-        elif topic == "portus/evt/transferencia":
-            tipo_tr = data.get("tipo", "")
-            if "Alineado" in tipo_tr or "Inicio" in tipo_tr or "Transferencia" in tipo_tr:
-                terminal_state["transferencia"]["estado"] = "Ocupada"
-                conn = get_db_connection()
-                t_act = conn.execute("""
-                SELECT * FROM turnos WHERE estado_actual IN ('EnPesajeEntrada', 'EnRuta') ORDER BY id DESC LIMIT 1
-                """).fetchone()
-                if t_act:
-                    transition_turn(t_act["id"], "EnTransferencia", estacion="TRANSFERENCIA", origen="controlador",
-                                    detalle="Vehiculo posicionado en zona de transferencia")
-                conn.close()
-            elif "Fin" in tipo_tr or "Libre" in str(datos):
-                terminal_state["transferencia"]["estado"] = "Libre"
-
-        elif topic == "portus/evt/grua":
-            terminal_state["grua"]["estado"] = data.get("tipo", "Operando")
-
-        elif topic == "portus/evt/salida":
-            tipo_sal = data.get("tipo", "")
-            if "Paso" in tipo_sal or "Autorizado" in tipo_sal or "Salida" in tipo_sal:
-                terminal_state["puerta_salida"] = "Abierta"
-                conn = get_db_connection()
-                t_act = conn.execute("""
-                SELECT * FROM turnos WHERE estado_actual IN ('EnTransferencia', 'EnPesajeSalida', 'EnSalida') ORDER BY id DESC LIMIT 1
-                """).fetchone()
-                if t_act:
-                    transition_turn(t_act["id"], "Cerrado", estacion="SALIDA", origen="controlador",
-                                    detalle="Vehiculo salio de la terminal. Operacion completada.")
-                conn.close()
-
-        elif topic == "portus/evt/alarma":
-            cod = datos.get("codigo", "AL00")
-            raise_alarm(cod, origen=data.get("origen", "controlador"), datos=datos)
-
-        elif topic == "portus/cmd/respuesta":
-            resultado = datos.get("resultado")
-            cmd = datos.get("comando")
-            if resultado == "NAK":
-                # Alarma AL14 obligatoria si controlador rechaza comando
-                raise_alarm("AL14", origen="controlador", datos={"comando": cmd, "error": datos.get("error")})
-
-        # Notificar instantaneamente al navegador via SSE (sin polling)
-        dispatch_event_to_sse({"topic": topic, "data": data, "state": terminal_state})
-
-    except Exception as e:
-        logging.error("Error procesando mensaje MQTT en server: %s", e)
+                dispatch_event_to_sse({"topic": msg.topic, "data": data, "state": copy.deepcopy(terminal_state)})
+    except Exception:
+        logging.exception("Error procesando telemetria MQTT")
 
 
 def init_mqtt():
@@ -285,12 +126,50 @@ def init_mqtt():
     mqtt_client = mqtt.Client(client_id=f"portus_server_{uuid.uuid4().hex[:6]}")
     mqtt_client.on_connect = lambda c, u, f, rc: c.subscribe("portus/#") if rc == 0 else None
     mqtt_client.on_message = on_mqtt_message
+    def supervise():
+        from .telemetry import alarm_once
+        while True:
+            time.sleep(2)
+            with telemetry_lock:
+                stamp = terminal_state.get('ultimo_latido_timestamp')
+                if stamp and terminal_state['enlace']=='CONECTADO':
+                    elapsed = (datetime.now(timezone.utc)-datetime.fromisoformat(stamp)).total_seconds()
+                    if elapsed > 15:
+                        terminal_state['enlace']='DESCONECTADO'
+                        terminal_state['sincronizado']=False
+                        alarm_once('AL01')
+                        dispatch_event_to_sse({'topic':'portus/evt/estado','state':copy.deepcopy(terminal_state)})
+    threading.Thread(target=supervise, daemon=True).start()
     try:
         mqtt_client.connect("localhost", 1883, keepalive=60)
         mqtt_client.loop_start()
         logging.info("Servidor web conectado a MQTT en localhost:1883 (suscrito a portus/#)")
     except Exception as e:
         logging.warning("No se pudo conectar a MQTT en localhost:1883: %s", e)
+
+
+@app.after_request
+def notify_mutation(response):
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and response.status_code < 400 and request.path.startswith('/api/'):
+        dispatch_event_to_sse({'topic': 'portus/refresh', 'state': copy.deepcopy(terminal_state)})
+    return response
+
+
+@app.before_request
+def protect_operational_data():
+    user = session.get('user')
+    if not user:
+        return
+    path = request.path
+    if user['rol'] != 'TERMINAL' and any(path.startswith(prefix) for prefix in ('/api/grua', '/api/alarmas', '/api/citas', '/api/reportes')):
+        return jsonify({'error': 'Acceso exclusivo de TERMINAL'}), 403
+    if user['rol'] not in ('TERMINAL','AUTORIDAD') and path.startswith('/api/retenciones'):
+        return jsonify({'error': 'Rol sin acceso a retenciones'}), 403
+    physical_action = path.startswith('/api/patio/posicion/') or path == '/api/cmd/remote' or (path == '/api/turnos' and request.method=='POST')
+    if physical_action and request.method=='POST' and user['rol']!='TERMINAL':
+        return jsonify({'error':'Acceso exclusivo de TERMINAL'}), 403
+    if physical_action and request.method=='POST' and terminal_state.get('protocolo')=='fase1':
+        return jsonify({'error': 'Fase1 opera localmente. Esta conexion supervisa el hardware; no admite esta orden remota.'}), 409
 
 
 # -------------------------------------------------------------
@@ -415,30 +294,34 @@ def view_autoridad():
 @app.route("/api/stream/events")
 @login_required
 def sse_events():
+    user = dict(session['user'])
+    def visible_event(event):
+        if user['rol'] == 'TERMINAL':
+            return event
+        # Other roles receive invalidation only; REST applies ownership filters.
+        return {'topic': 'portus/refresh', 'data': {'timestamp': datetime.now(timezone.utc).isoformat()},
+                'state': {k: terminal_state[k] for k in ('enlace', 'ultimo_latido_timestamp', 'fuente')}}
     def event_generator():
         q = queue.Queue(maxsize=100)
         with event_queues_lock:
             event_queues.append(q)
-
-        # Enviar estado inicial completo de inmediato (con parqueo sincronizado)
-        _refresh_parqueo_state()
-        init_payload = json.dumps({"topic": "portus/init", "state": terminal_state})
-        yield f"data: {init_payload}\n\n"
-
         try:
+            with telemetry_lock:
+                _refresh_parqueo_state()
+                initial = visible_event({"topic":"portus/init", "state":copy.deepcopy(terminal_state)})
+            yield f"data: {json.dumps(initial)}\n\n"
             while True:
                 try:
                     event = q.get(timeout=10.0)
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield f"data: {json.dumps(visible_event(event))}\n\n"
                 except queue.Empty:
-                    # Keepalive SSE cada 10 segundos
                     yield ": keepalive\n\n"
         finally:
             with event_queues_lock:
                 if q in event_queues:
                     event_queues.remove(q)
 
-    return Response(event_generator(), mimetype="text/event-stream")
+    return Response(event_generator(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # -------------------------------------------------------------
@@ -627,6 +510,9 @@ def list_declaraciones():
         ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM declaraciones ORDER BY id DESC").fetchall()
+    if session['user']['rol']=='NAVIERA':
+        own = {r[0] for r in conn.execute('SELECT id FROM manifiestos WHERE naviera_id=?', (session['user']['username'],))}
+        rows = [r for r in rows if r['manifiesto_id'] in own]
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -683,6 +569,25 @@ def create_declaracion():
     return jsonify({"success": True, "message": "Declaracion de mercancias presentada exitosamente"})
 
 
+@app.route('/api/declaraciones/observacion', methods=['POST'])
+@login_required
+@require_permission('presentar_declaracion')
+def agregar_observacion():
+    data = request.get_json() or {}
+    text = str(data.get('observacion','')).strip()
+    if not text:
+        return jsonify({'error':'Escriba una observacion'}), 400
+    conn = get_db_connection()
+    row = conn.execute('SELECT id FROM declaraciones WHERE manifiesto_id=? ORDER BY id DESC LIMIT 1', (data.get('manifiesto_id'),)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error':'Primero presente la declaracion'}), 400
+    conn.execute("UPDATE declaraciones SET observaciones=COALESCE(observaciones,'') || ? WHERE id=?", ('\n'+text,row['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'success':True,'message':'Observacion guardada'})
+
+
 @app.route("/api/declaraciones/solicitar-levante", methods=["POST"])
 @login_required
 @require_permission("presentar_declaracion")
@@ -696,7 +601,7 @@ def solicitar_levante():
         conn.close()
         return jsonify({"error": "Manifiesto no encontrado"}), 404
 
-    if manif["estado_documental"] != "DECLARADO":
+    if manif["estado_documental"] not in ("DECLARADO", "LEVANTE_RETENIDO"):
         conn.close()
         return jsonify({"error": "Solo se puede solicitar levante para manifiestos con declaracion presentada"}), 400
 
@@ -775,6 +680,9 @@ def list_turnos():
 
     query = "SELECT * FROM turnos WHERE 1=1"
     params = []
+    if session['user']['rol'] == 'NAVIERA':
+        query += " AND (naviera_id=? OR manifiesto_id IN (SELECT id FROM manifiestos WHERE naviera_id=?))"
+        params.extend([session['user']['username']]*2)
 
     if estado:
         query += " AND estado_actual = ?"
@@ -811,6 +719,12 @@ def list_turnos():
 @app.route("/api/turnos/<int:turno_id>/timeline", methods=["GET"])
 @login_required
 def get_timeline(turno_id):
+    if session['user']['rol'] == 'NAVIERA':
+        conn = get_db_connection()
+        row = conn.execute("SELECT 1 FROM turnos t LEFT JOIN manifiestos m ON m.id=t.manifiesto_id WHERE t.id=? AND (t.naviera_id=? OR m.naviera_id=?)", (turno_id, session['user']['username'], session['user']['username'])).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error':'Turno no disponible'}), 404
     timeline = get_turn_timeline(turno_id)
     return jsonify(timeline)
 
@@ -966,10 +880,50 @@ def resolve_retention_endpoint(ret_id):
 # -------------------------------------------------------------
 # API: PATIO Y GRUA
 # -------------------------------------------------------------
+@app.route('/api/carga')
+@login_required
+def list_carga():
+    conn = get_db_connection()
+    manifests = [dict(r) for r in conn.execute('SELECT * FROM manifiestos ORDER BY created_at DESC')]
+    turns = [dict(r) for r in conn.execute('SELECT * FROM turnos ORDER BY id DESC')]
+    cells = get_yard_inventory()
+    ids = {m['contenedor_id'] for m in manifests} | {t['contenedor_id'] for t in turns} | {c['contenedor_id'] for c in cells if c['contenedor_id']}
+    result = []
+    for cid in sorted(ids):
+        m = next((m for m in manifests if m['contenedor_id']==cid), None)
+        t = next((t for t in turns if t['contenedor_id']==cid), None)
+        c = next((c for c in cells if c['contenedor_id']==cid), None)
+        owner = (m or {}).get('naviera_id') or (t or {}).get('naviera_id') or (c or {}).get('naviera_id')
+        if session['user']['rol']=='NAVIERA' and owner != session['user']['username']:
+            continue
+        location = f"P{c['posicion']} N{c['nivel']}" if c else (t['estacion_actual'] if t else 'Sin ingreso observado')
+        physical = 'En patio' if c else t['estado_actual'] if t else 'Sin ingreso observado'
+        result.append({'contenedor':cid,'naviera':owner or '-', 'manifiesto':m['id'] if m else None,
+                       'ubicacion':location,'estado':physical,'estadoPatio':physical,
+                       'estadoDoc':m['estado_documental'] if m else 'SIN_DOCUMENTO',
+                       'autorizacion':m['estado_documental'] if m else 'SIN_DOCUMENTO',
+                       'canal':m['canal_selectivo'] if m else None,
+                       'permanencia':c['permanencia_str'] if c else '-',
+                       'excesiva':c['permanencia_excesiva'] if c else False,
+                       'ingreso':c['ingreso_at'] if c else None, 'remociones':c['remociones'] if c else 0,
+                       'bloqueada':c['bloqueada'] if c else 0})
+    conn.close()
+    return jsonify(result)
+
+
 @app.route("/api/patio", methods=["GET"])
 @login_required
 def get_patio():
     inv = get_yard_inventory()
+    for cell in inv:
+        observed = terminal_state.get('patio_fisico', {}).get(str(cell['posicion']))
+        cell['confirmado'] = observed is not None
+        cell['ocupada_fisica'] = int(observed['niveles']) > cell['nivel'] if observed else None
+        cell['estado_fisico'] = observed['estado'] if observed else 'SIN_CONFIRMAR'
+        if observed:
+            cell['bloqueada'] = int(observed['estado']=='BLOQUEADA')
+    if session['user']['rol'] == 'NAVIERA':
+        inv = [cell for cell in inv if cell['naviera_id'] == session['user']['username']]
     return jsonify(inv)
 
 

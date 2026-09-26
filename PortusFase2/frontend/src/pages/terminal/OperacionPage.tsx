@@ -1,7 +1,7 @@
 // Pestaña Operación: sinóptico en vivo alimentado por suscripción SSE.
 // Refrescos de datos lógicos del servidor (retenciones, patio, turnos) se
 // disparan por la llegada de eventos del stream, nunca por timer de polling.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
   DoorOpen,
@@ -43,18 +43,6 @@ import {
 } from '../../utils/status'
 import { fmtFechaHora, fmtKg } from '../../utils/format'
 import type { SinopticoStream } from '../../hooks/useSinopticoStream'
-
-// Topics cuya llegada indica un cambio logico en servidor que afecta al
-// parqueo / patio / turnos y justifica recargar esa lista.
-const TOPICS_RECARGA = new Set([
-  'portus/evt/garita',
-  'portus/evt/pesaje',
-  'portus/evt/aguja',
-  'portus/evt/patio',
-  'portus/evt/salida',
-  'portus/cmd/respuesta',
-  'portus/init',
-])
 
 function Estacion({
   titulo,
@@ -112,7 +100,6 @@ export default function OperacionPage() {
   const [turnoDetalle, setTurnoDetalle] = useState<Turno | null>(null)
   const [celdaDetalle, setCeldaDetalle] = useState<CeldaPatio | null>(null)
   const [esperandoCmd, setEsperandoCmd] = useState(false)
-  const ultimoTopicRef = useRef<string | null>(null)
 
   const retencionesQ = useApi(() => listRetenciones({ estado: 'ABIERTA' }), [])
   const patioQ = useApi(() => listPatio(), [])
@@ -123,23 +110,6 @@ export default function OperacionPage() {
   const [placaIngreso, setPlacaIngreso] = useState('')
   const [manifiestoIngreso, setManifiestoIngreso] = useState('')
   const [creandoTurno, setCreandoTurno] = useState(false)
-
-  const recargarLogicos = useCallback(() => {
-    retencionesQ.reload()
-    turnosQ.reload()
-  }, [retencionesQ, turnosQ])
-
-  // Recarga por llegada de eventos relevantes (suscripcion, no polling).
-  const topicActual = stream.ultimoEvento?.topic ?? null
-  useEffect(() => {
-    if (topicActual && topicActual !== ultimoTopicRef.current) {
-      ultimoTopicRef.current = topicActual
-      if (TOPICS_RECARGA.has(topicActual)) {
-        recargarLogicos()
-        if (topicActual === 'portus/evt/patio') patioQ.reload()
-      }
-    }
-  }, [topicActual, recargarLogicos, patioQ])
 
   // Respuesta async del controlador a un comando remoto (ACK / NAK + causa).
   const evt = stream.ultimoEvento
@@ -201,6 +171,9 @@ export default function OperacionPage() {
 
   return (
     <div className="space-y-4">
+      <div className="text-xs text-inkdim">Fuente: {estado.fuente || 'SIN DATOS'} · Vehiculos dentro: {estado.vehiculos_dentro ?? 'Sin confirmar'} · {estado.sincronizado ? 'Estado confirmado por controlador' : 'Esperando confirmacion'}</div>
+      {estado.paro_emergencia && <div role="alert" className="border border-danger bg-danger/10 p-4 text-danger font-bold">PARO DE EMERGENCIA ACTIVO EN LA MAQUETA</div>}
+      {estado.protocolo === 'fase1' && <div className="text-xs text-inkdim">Fase1: supervision del control local. Los mandos fisicos se operan en la maqueta.</div>}
       {/* Barra de estado del enlace y modo */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <LiveIndicator conectado={enlaceOk} ultimoMensajeEn={stream.ultimoMensajeEn} etiqueta="Enlace con controlador" />
@@ -231,7 +204,7 @@ export default function OperacionPage() {
         subtitle="Actualizacion por suscripcion SSE - latencia objetivo menor a 2 segundos"
         actions={
           <span className="text-2xs text-inkfaint hidden sm:block">
-            Espera: <span className="font-mono text-ink">{estado.zona_espera.cantidad_vehiculos}</span> veh.
+            Espera: <span className="font-mono text-ink">{estado.zona_espera.cantidad_vehiculos ?? '-'}</span> veh.
           </span>
         }
         bodyClassName="p-3 sm:p-4 space-y-4"
@@ -239,14 +212,14 @@ export default function OperacionPage() {
         {/* Flujo principal */}
         <div className="flex flex-col lg:flex-row lg:items-stretch gap-2">
           {/* Zona de espera */}
-          <Estacion titulo="Zona de espera" className="lg:w-36">
+          <Estacion titulo="Sensor de espera" className="lg:w-36">
             <div className="flex items-center gap-2">
               <Truck size={16} className="text-inkdim" />
               <span className="text-xl font-semibold font-mono text-ink">
-                {estado.zona_espera.cantidad_vehiculos}
+                {estado.zona_espera.cantidad_vehiculos ?? '-'}
               </span>
             </div>
-            <div className="text-2xs text-inkfaint mt-1">vehiculos en cola</div>
+            <div className="text-2xs text-inkfaint mt-1">presencia detectada (0/1)</div>
           </Estacion>
 
           <Flecha />
@@ -290,7 +263,7 @@ export default function OperacionPage() {
           <Estacion titulo="Plataforma de pesaje" className="lg:w-48">
             <StatusBadge color={colorPesaje(estado.pesaje.estado)}>{estado.pesaje.estado}</StatusBadge>
             <div className="mt-1.5 space-y-1">
-              <Dato etiqueta="Ultimo valor" valor={<span className="font-mono">{fmtKg(estado.pesaje.ultimo_valor_kg)}</span>} />
+              <Dato etiqueta="Ultimo valor" valor={<span className="font-mono">{estado.pesaje.ultimo_valor_kg == null ? 'Sin lectura' : `${estado.pesaje.ultimo_valor_kg.toFixed(2)} kg`}</span>} />
               <Dato etiqueta="Comparacion" valor={estado.pesaje.resultado} />
             </div>
           </Estacion>
@@ -317,8 +290,8 @@ export default function OperacionPage() {
               {grua.referenciada && <StatusBadge color="accent">ref</StatusBadge>}
             </div>
             <div className="mt-1.5 space-y-1">
-              <Dato etiqueta="Posicion" valor={<span className="font-mono">{grua.posicion}</span>} />
-              <Dato etiqueta="Cola" valor={<span className="font-mono">{grua.cola_pendientes}</span>} />
+              <Dato etiqueta="Posicion" valor={<span className="font-mono">{grua.posicion ?? '-'}</span>} />
+              <Dato etiqueta="Cola" valor={<span className="font-mono">{grua.cola_pendientes ?? '-'}</span>} />
               <Dato etiqueta="Trabajo" valor={grua.trabajo_en_curso || 'ninguno'} />
             </div>
           </Estacion>
@@ -396,22 +369,22 @@ export default function OperacionPage() {
                     className={`border rounded p-2 w-40 text-left transition-colors ${
                       bloqueada
                         ? 'border-danger/50 bg-danger-soft'
-                        : niveles.some((n) => n.contenedor_id)
+                        : niveles.some((n) => n.ocupada_fisica || n.contenedor_id)
                           ? 'border-accent/40 bg-accent-soft hover:border-accent'
                           : 'border-line bg-surface2 hover:border-line2'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-2xs font-mono text-inkfaint">P{posicion}</span>
-                      <StatusBadge color={bloqueada ? 'danger' : niveles.some((n) => n.contenedor_id) ? 'ok' : 'neutral'}>
-                        {bloqueada ? 'Bloqueada' : niveles.some((n) => n.contenedor_id) ? 'Ocupada' : 'Libre'}
+                      <StatusBadge color={bloqueada ? 'danger' : niveles.some((n) => n.ocupada_fisica || n.contenedor_id) ? 'ok' : 'neutral'}>
+                        {bloqueada ? 'Bloqueada' : niveles.some((n) => n.ocupada_fisica || n.contenedor_id) ? 'Ocupada' : niveles.every((n) => n.confirmado) ? 'Libre' : 'Sin confirmar'}
                       </StatusBadge>
                     </div>
                     <div className="mt-1 space-y-0.5">
                       {niveles.map((n) => (
                         <div key={n.nivel} className="text-2xs flex justify-between">
                           <span className="text-inkfaint">N{n.nivel}</span>
-                          <span className="font-mono text-inkdim">{n.contenedor_id || '---'}</span>
+                          <span className="font-mono text-inkdim">{n.contenedor_id || (n.ocupada_fisica ? 'Ocupada (sin ID)' : n.confirmado ? 'Libre' : 'Sin confirmar')}</span>
                         </div>
                       ))}
                     </div>
@@ -426,15 +399,15 @@ export default function OperacionPage() {
         <div className="flex items-center gap-3 border-t border-line pt-3 text-xs">
           <Boxes size={14} className="text-inkfaint" />
           <span className="text-inkfaint">Cola de trabajos de grua:</span>
-          <span className="font-mono text-ink">{grua.cola_pendientes}</span>
+          <span className="font-mono text-ink">{grua.cola_pendientes ?? '-'}</span>
           <span className="text-inkfaint ml-auto">
-            Turnos activos: <span className="font-mono text-ink">{turnosActivos.length}</span>
+            Turnos activos: <span className="font-mono text-ink">{estado.vehiculos_dentro ?? turnosActivos.length}</span>
           </span>
         </div>
       </Panel>
 
       {/* Controles de comando remoto */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <fieldset disabled={estado.protocolo === 'fase1' || estado.enlace !== 'CONECTADO'} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 disabled:opacity-60">
         <Panel title="Control de grua" bodyClassName="p-3 flex flex-wrap gap-2">
           <button className="btn-ghost" onClick={() => enviarComando('GruaSuspender')} title="La grua termina el movimiento en curso y no toma nuevos trabajos">
             <Pause size={13} /> Suspender grua
@@ -526,7 +499,7 @@ export default function OperacionPage() {
             </span>
           </div>
         </Panel>
-      </div>
+      </fieldset>
 
       {/* Confirmacion de comando */}
       <Modal
@@ -569,7 +542,7 @@ export default function OperacionPage() {
             <>
               <button
                 className="btn-ghost"
-                disabled={celdaDetalle.bloqueada === 1}
+                disabled={celdaDetalle.bloqueada !== 1}
                 onClick={async () => {
                   try {
                     await liberarPosicion(celdaDetalle.posicion)
@@ -670,7 +643,7 @@ export default function OperacionPage() {
                   setModalIngreso(false)
                   setPlacaIngreso('')
                   setManifiestoIngreso('')
-                  recargarLogicos()
+                  turnosQ.reload()
                 } catch (e) {
                   push('error', e instanceof Error ? e.message : 'Error al autorizar ingreso')
                 } finally {

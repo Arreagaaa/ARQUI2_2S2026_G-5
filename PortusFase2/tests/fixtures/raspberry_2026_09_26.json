@@ -1,0 +1,1267 @@
+[
+  {
+    "topic": "portus/evt/alarma",
+    "event": {
+      "id": "3facb923-6879-40a6-9b38-156137c166a0",
+      "timestamp": "2026-09-26T07:08:44.588747+00:00",
+      "origen": "controlador",
+      "tipo": "AlarmaGenerada",
+      "datos": {
+        "codigo": "AL01",
+        "severidad": "Critica",
+        "descripcion": "Enlace con el controlador perdido",
+        "origen": "servidor",
+        "tiempo_transcurrido": 15.9
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "3bf5ee3e-7c0c-47c1-8958-43e6c3e8ae00",
+      "timestamp": "2026-09-26T07:08:44.589909+00:00",
+      "origen": "controlador",
+      "tipo": "EnlacePerdido",
+      "datos": {
+        "estado": "DESCONECTADO",
+        "ultimo_latido": 15.856951475143433
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "decbb1a2-06d1-40da-b3aa-2d8e1cfa6f8e",
+      "timestamp": "2026-09-26T07:08:45.888954+00:00",
+      "origen": "controlador",
+      "tipo": "EnlaceRestablecido",
+      "datos": {
+        "estado": "CONECTADO"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "6bb3efcf-2703-47d8-ab9f-e75c8dd0c02d",
+      "timestamp": "2026-09-26T07:08:45.890086+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaIdentificacion",
+      "datos": {
+        "uid": "39BB16B3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "bff84de1-6593-4a88-98fa-8d8a73b86e54",
+      "timestamp": "2026-09-26T07:08:55.316840+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 4.07 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "cd3f53cd-85da-46f4-bba4-e9b7f09dc25b",
+      "timestamp": "2026-09-26T07:08:55.616570+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.22 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "94b158d4-e0dd-4f22-a994-78264fc70632",
+      "timestamp": "2026-09-26T07:08:55.919224+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.17 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "d6db1ae6-6b5e-4a0d-a598-0f49063bfc1e",
+      "timestamp": "2026-09-26T07:08:56.220638+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.16 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "1ef4bc08-af85-4acc-be2b-67f700f402fc",
+      "timestamp": "2026-09-26T07:08:56.522514+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.16 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "5d5b7ef6-df07-48b9-adca-710c756cdfd2",
+      "timestamp": "2026-09-26T07:08:56.824329+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.16 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "82632a8b-16b7-4c86-8573-f5bc54f98194",
+      "timestamp": "2026-09-26T07:08:57.124557+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.16 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "0e71347b-a310-4a63-b7b6-87d84bab87ae",
+      "timestamp": "2026-09-26T07:08:57.426623+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.17 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/pesaje",
+    "event": {
+      "id": "797d3193-38c1-46a7-b97b-a6060dcee784",
+      "timestamp": "2026-09-26T07:08:57.596180+00:00",
+      "origen": "controlador",
+      "tipo": "PesajeLectura",
+      "datos": {
+        "detalle": "Peso leido: 1.16 kg  (declarado: 2.67 kg, tolerancia: +-9999.00 kg)"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "842441fa-1223-4940-88e2-10d7db600dcd",
+      "timestamp": "2026-09-26T07:08:57.602566+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "907525cd-edca-48fb-846f-4695134c6bf3",
+      "timestamp": "2026-09-26T07:08:57.608314+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 2"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "a6d27df0-765a-4d4a-9514-43c8ac501618",
+      "timestamp": "2026-09-26T07:08:57.641075+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "8aca162a-7fd3-456f-90ef-faaf1c0772ce",
+      "timestamp": "2026-09-26T07:09:04.165366+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 4"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "5e43503d-3fc6-4e7d-a271-950e4c5518a6",
+      "timestamp": "2026-09-26T07:09:04.172276+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 5"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "31b5340d-836b-4a2f-a68d-d3b701fd33d9",
+      "timestamp": "2026-09-26T07:09:04.564328+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 6"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "da2f551c-04ae-41c4-aa63-abfeedc6e082",
+      "timestamp": "2026-09-26T07:09:05.049114+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "fe5f7b4e-628d-4949-879c-7c48cd4b3803",
+      "timestamp": "2026-09-26T07:09:12.891319+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaIdentificacion",
+      "datos": {
+        "uid": "D9D87BD3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "a51cef14-e79a-4408-89e7-61972be9e7d3",
+      "timestamp": "2026-09-26T07:09:23.442414+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 4.07 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "ffc7e0de-6ceb-46ec-8712-b18ea658390f",
+      "timestamp": "2026-09-26T07:09:23.742116+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.40 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "77f8af3c-868c-458f-a1e3-54997247cc4f",
+      "timestamp": "2026-09-26T07:09:24.044943+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.40 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "0e0ce2f3-8c09-4f4c-9aa9-3e2b83d81ed3",
+      "timestamp": "2026-09-26T07:09:24.346270+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.40 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "59a24446-1d06-43ae-a232-2f83710359f2",
+      "timestamp": "2026-09-26T07:09:24.646871+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.40 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "c24652a5-3c97-4dc9-b027-7e183efa1c76",
+      "timestamp": "2026-09-26T07:09:24.948743+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Peso en vivo: 1.40 kg"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/pesaje",
+    "event": {
+      "id": "c02a9dbc-91a8-418b-af12-059116109425",
+      "timestamp": "2026-09-26T07:09:24.975455+00:00",
+      "origen": "controlador",
+      "tipo": "PesajeLectura",
+      "datos": {
+        "detalle": "Peso leido: 1.40 kg  (declarado: 0.47 kg, tolerancia: +-9999.00 kg)"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "09f32d71-5645-4b45-a921-a0fa3445bff4",
+      "timestamp": "2026-09-26T07:09:38.484504+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "e8380743-c054-461a-afb1-7817be83de4e",
+      "timestamp": "2026-09-26T07:09:38.526107+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "4d15f122-c39c-418e-a952-bb7cea99761e",
+      "timestamp": "2026-09-26T07:09:38.532361+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "3888040e-06fa-49f3-8490-af7a199af6dd",
+      "timestamp": "2026-09-26T07:09:38.539295+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "b663d890-8d11-4196-8a71-027e6a8dc46c",
+      "timestamp": "2026-09-26T07:09:38.573124+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "3e308853-a82f-4aaf-92be-b9a290ef0265",
+      "timestamp": "2026-09-26T07:09:38.968157+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "62914c25-8bb2-4795-96b8-05fee77b1e23",
+      "timestamp": "2026-09-26T07:09:38.971382+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "0cdd23c2-939c-4f03-807a-b899e1f3e40d",
+      "timestamp": "2026-09-26T07:09:38.979957+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "50fbe895-0a4a-4369-ad22-af936efdce6a",
+      "timestamp": "2026-09-26T07:09:38.985295+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "55e41d69-6a0d-43d6-8166-35daae3110f9",
+      "timestamp": "2026-09-26T07:09:41.627189+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "abed32ee-0b3d-4953-bdae-3583bef5d0bd",
+      "timestamp": "2026-09-26T07:09:41.672880+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "45970a15-f4f2-4d55-9894-2a8b73388a5b",
+      "timestamp": "2026-09-26T07:09:44.726419+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "7f4dfd7b-e2ef-4d87-b36c-b22c6ebac7f8",
+      "timestamp": "2026-09-26T07:09:44.771229+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "ce376aac-b268-4800-86af-2955ff9d610f",
+      "timestamp": "2026-09-26T07:09:45.002042+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "958e9edf-bc12-4213-aa78-7e0f28b64f0d",
+      "timestamp": "2026-09-26T07:09:45.008302+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "6e5da9f7-390e-4088-8dfd-a9386ab4e7e7",
+      "timestamp": "2026-09-26T07:09:45.012658+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "f5685320-3632-4142-b356-f662515804d3",
+      "timestamp": "2026-09-26T07:09:45.397961+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "2"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "d1828f95-e1c5-4b47-b498-81be3c6e6435",
+      "timestamp": "2026-09-26T07:09:45.402914+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "7892967c-dad7-4474-8f2f-adc9fe77cdd2",
+      "timestamp": "2026-09-26T07:09:45.410350+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "15d29298-715b-486d-9fe2-6b7de6f8377a",
+      "timestamp": "2026-09-26T07:09:45.416527+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "4"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "04f80111-6adf-457b-badc-d31543b9f13e",
+      "timestamp": "2026-09-26T07:09:47.823190+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "bfd2c8da-d59d-495e-9023-49932bc4c7a7",
+      "timestamp": "2026-09-26T07:09:47.869292+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "65973c20-c8e4-4f60-a42c-35bf6a3ec177",
+      "timestamp": "2026-09-26T07:09:50.921336+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "5ded1912-fbe4-4b5b-8377-ca68f72eccbc",
+      "timestamp": "2026-09-26T07:09:50.968311+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "30519021-baf9-4e02-b2bd-91c6b13cb795",
+      "timestamp": "2026-09-26T07:09:51.720101+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "5"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "255509c6-4efd-4ba1-83e1-cfceb25602c5",
+      "timestamp": "2026-09-26T07:09:51.726259+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "6"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "738143bf-7c97-422b-a8cf-cd0e13fb7bf8",
+      "timestamp": "2026-09-26T07:09:52.022987+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "a0e43ee2-9946-4f32-8502-5a1439702eb8",
+      "timestamp": "2026-09-26T07:09:54.017886+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "d0c3159f-cbf0-4e5e-a037-882db42a71cf",
+      "timestamp": "2026-09-26T07:09:54.064781+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "b2f45ea1-d42b-43fa-aa9b-afdbd181f976",
+      "timestamp": "2026-09-26T07:09:57.117382+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "a948952d-4bb9-4102-bb67-628588a2c142",
+      "timestamp": "2026-09-26T07:09:57.162963+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "598e6347-f20c-4019-ba11-2ecee3643e37",
+      "timestamp": "2026-09-26T07:09:58.342485+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "8"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "0e4da50a-1a80-4317-9b0e-5fb55ec6ece3",
+      "timestamp": "2026-09-26T07:09:59.292219+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "9"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "ce37090e-2d56-4633-afce-1627af725f3c",
+      "timestamp": "2026-09-26T07:10:00.215464+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "2e9ca719-be5a-4c1d-ac96-5638079dc61a",
+      "timestamp": "2026-09-26T07:10:00.261524+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "d562d602-b47a-4d77-8c8b-bb757d201dcf",
+      "timestamp": "2026-09-26T07:10:01.304465+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "10"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "16d9a687-0cd1-4368-852b-2a7850332b76",
+      "timestamp": "2026-09-26T07:10:03.313219+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "a2bd0edc-1d7f-4dfc-b13f-edc40dbce18d",
+      "timestamp": "2026-09-26T07:10:03.357349+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "c3d6ab13-bc82-4f21-94da-0c466399920a",
+      "timestamp": "2026-09-26T07:10:06.410562+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "90f62ef6-5a50-40f5-b27b-3d84c44abc4f",
+      "timestamp": "2026-09-26T07:10:06.456200+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "33521acd-7b66-4c9f-8656-db50e0710c8e",
+      "timestamp": "2026-09-26T07:10:07.625298+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "11"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "7ccaf2dc-91c7-4aea-b7de-cf2621ebf168",
+      "timestamp": "2026-09-26T07:10:07.936050+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "12"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "baa0b482-f266-4fa9-a2ae-60c3ed5f055d",
+      "timestamp": "2026-09-26T07:10:09.541340+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "2e3cbbc0-2bec-4e4d-a934-d3fb0c3c5159",
+      "timestamp": "2026-09-26T07:10:09.611531+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "2c136d19-6b26-4bee-b27f-02939cac7f52",
+      "timestamp": "2026-09-26T07:10:12.637367+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "b590b876-a79e-4c37-b056-918ae1cb0c1d",
+      "timestamp": "2026-09-26T07:10:12.678685+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "bd0c1b05-9bfa-4617-aab5-ffe0ae44ed18",
+      "timestamp": "2026-09-26T07:10:14.281657+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "13"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "8b1ccb31-0de0-4d15-9670-815805ad8b28",
+      "timestamp": "2026-09-26T07:10:14.285559+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "575b3bab-b311-4160-8286-b967d8a0ee5b",
+      "timestamp": "2026-09-26T07:10:15.727988+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "c5f8f6ce-2cb1-4a5e-ba7f-0543acf2c5aa",
+      "timestamp": "2026-09-26T07:10:15.769584+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 7"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "6ea90711-acc2-4335-b778-23bbd98c3b08",
+      "timestamp": "2026-09-26T07:10:18.820612+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 1"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "1ae2ee2a-5ca8-42ca-9220-783bf02dc20c",
+      "timestamp": "2026-09-26T07:10:18.827478+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 2"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "c9970fa1-39ef-4488-8b06-a443a96671e9",
+      "timestamp": "2026-09-26T07:10:18.863783+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "484670a6-4f5b-4f71-83da-767aeaf5f5ad",
+      "timestamp": "2026-09-26T07:10:19.646440+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 4"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "0f0a8ec3-7c0d-4dbb-ab05-1d8ef583fe71",
+      "timestamp": "2026-09-26T07:10:19.653326+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 5"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "83bdf886-7f90-4986-a7dd-a1ebd3aaa8ac",
+      "timestamp": "2026-09-26T07:10:20.045235+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 6"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "5f403641-1587-4415-9ada-65a6f65f52f3",
+      "timestamp": "2026-09-26T07:10:20.343468+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "[SALIDA] cambio de estado -> 0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/alarma",
+    "event": {
+      "id": "c33b8df9-ce11-445c-bdaa-6711bddb2ee1",
+      "timestamp": "2026-09-26T07:10:36.603964+00:00",
+      "origen": "controlador",
+      "tipo": "AlarmaGenerada",
+      "datos": {
+        "codigo": "AL01",
+        "severidad": "Critica",
+        "descripcion": "Enlace con el controlador perdido",
+        "origen": "servidor",
+        "tiempo_transcurrido": 16.3
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "ace5f751-f235-4e57-a356-db4d0385f15d",
+      "timestamp": "2026-09-26T07:10:36.605153+00:00",
+      "origen": "controlador",
+      "tipo": "EnlacePerdido",
+      "datos": {
+        "estado": "DESCONECTADO",
+        "ultimo_latido": 16.259645223617554
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "2fce2bb1-0b8f-4c03-90a9-a7732a85e46e",
+      "timestamp": "2026-09-26T07:10:42.282772+00:00",
+      "origen": "controlador",
+      "tipo": "EnlaceRestablecido",
+      "datos": {
+        "estado": "CONECTADO"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "a5c08749-a601-4658-a5bb-a643abd55a3d",
+      "timestamp": "2026-09-26T07:10:42.283966+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "2fc7188d-2fb1-4f7e-99b4-a7ffb3cb2a8c",
+      "timestamp": "2026-09-26T07:10:55.684311+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Reanudado automaticamente por boton de paro."
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "cb98541e-ef2b-4ed2-bd64-1d0ac3df5ce4",
+      "timestamp": "2026-09-26T07:10:55.689256+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "5dd13ac2-2c0c-43c4-b9fa-d8a03191afe3",
+      "timestamp": "2026-09-26T07:10:57.318663+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "edcb1efc-91bb-40f5-ace6-0550a720152a",
+      "timestamp": "2026-09-26T07:10:59.986044+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Reanudado automaticamente por boton de paro."
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "335860af-37a0-469c-96a2-f199035dd64f",
+      "timestamp": "2026-09-26T07:10:59.991631+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "42d7e89a-60b6-4b2e-b766-36cbe43b1a44",
+      "timestamp": "2026-09-26T07:11:02.154345+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "15"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "fdc74900-85ad-47b9-b2a7-a02a455b6dca",
+      "timestamp": "2026-09-26T07:11:10.563957+00:00",
+      "origen": "controlador",
+      "tipo": "INFO",
+      "datos": {
+        "info": "Reanudado automaticamente por boton de paro."
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/grua",
+    "event": {
+      "id": "ec23c077-2b4e-4cfc-9024-4477fc625daf",
+      "timestamp": "2026-09-26T07:11:10.569621+00:00",
+      "origen": "controlador",
+      "tipo": "GruaEstado",
+      "datos": {
+        "estado": "0"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/alarma",
+    "event": {
+      "id": "4f85061c-3694-4a20-b14b-951c9e214ed0",
+      "timestamp": "2026-09-26T07:11:26.609989+00:00",
+      "origen": "controlador",
+      "tipo": "AlarmaGenerada",
+      "datos": {
+        "codigo": "AL01",
+        "severidad": "Critica",
+        "descripcion": "Enlace con el controlador perdido",
+        "origen": "servidor",
+        "tiempo_transcurrido": 16.0
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "ec6144ea-2872-4c98-84d9-0c414431e1f2",
+      "timestamp": "2026-09-26T07:11:26.611142+00:00",
+      "origen": "controlador",
+      "tipo": "EnlacePerdido",
+      "datos": {
+        "estado": "DESCONECTADO",
+        "ultimo_latido": 16.03962540626526
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/estado",
+    "event": {
+      "id": "824b6c77-dee3-4af7-aff6-b1660050677e",
+      "timestamp": "2026-09-26T07:12:00.717666+00:00",
+      "origen": "controlador",
+      "tipo": "EnlaceRestablecido",
+      "datos": {
+        "estado": "CONECTADO"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "cad78192-475c-4389-bc8f-fc417cab4922",
+      "timestamp": "2026-09-26T07:12:00.718542+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaIdentificacion",
+      "datos": {
+        "uid": "39BB16B3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "78004532-4fb0-4c96-aff8-9666d31d1993",
+      "timestamp": "2026-09-26T07:12:00.728479+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaValidacion",
+      "datos": {
+        "resultado": "RECHAZADO",
+        "causa": "Sin manifiesto pendiente para este camion"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "b177ab34-7399-4410-97de-6c96de1e17df",
+      "timestamp": "2026-09-26T07:12:05.079428+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaIdentificacion",
+      "datos": {
+        "uid": "39BB16B3"
+      }
+    }
+  },
+  {
+    "topic": "portus/evt/garita",
+    "event": {
+      "id": "3da79b63-7af2-49c2-8064-5fda742e8af7",
+      "timestamp": "2026-09-26T07:12:05.088316+00:00",
+      "origen": "controlador",
+      "tipo": "GaritaValidacion",
+      "datos": {
+        "resultado": "RECHAZADO",
+        "causa": "Sin manifiesto pendiente para este camion"
+      }
+    }
+  }
+]

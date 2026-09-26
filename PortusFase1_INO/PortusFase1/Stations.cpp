@@ -604,6 +604,9 @@ static void salida_update() {
         semaforo(PIN_SEM_GARITA_R, PIN_SEM_GARITA_A, PIN_SEM_GARITA_V, 'R');
         duenoTalanquera = 0;
         turnoEnSalida->estacionActual = EST_FINALIZADO;
+        Serial.print(F("@PORTUS TurnoCerrado;placa="));
+        Serial.print(CAMIONES[turnoEnSalida->idCamion].placa);
+        Serial.print(F(";turno_local=")); Serial.println(turnoEnSalida->id);
         turnoEnSalida->activo = false; // libera el slot de turno
         turnoEnSalida = nullptr;
         estadoSalida = SAL_LIBRE;
@@ -671,4 +674,31 @@ void stations_imprimirEstadoTurno(uint8_t indice) {
   Serial.print(F(" | Retenido: ")); Serial.print(t.retenido ? "SI" : "NO");
   Serial.print(F(" | PesajeInicial: ")); Serial.print(t.pesajeInicialKg);
   Serial.print(F(" | PesajeFinal: ")); Serial.println(t.pesajeFinalKg);
+}
+// Read-only supervision. Does not change the station machines or actuators.
+void stations_imprimirTelemetria() {
+  Serial.print(F("@PORTUS EstacionesDetalle;talanquera="));
+  Serial.print(servoTalanquera.read() == SERVO_ABIERTO ? F("Abierta") : F("Cerrada"));
+  Serial.print(F(";aguja="));
+  Serial.print(servoAguja.read() == AGUJA_RAMAL ? F("Ramal") : F("Recta"));
+  Serial.print(F(";espera=")); Serial.print(digitalRead(PIN_IR_ESPERA) == LOW ? 1 : 0);
+  Serial.print(F(";transferencia=")); Serial.print(digitalRead(PIN_IR_TRANSFERENCIA) == LOW ? 1 : 0);
+  Serial.print(F(";salida=")); Serial.print((int)estadoSalida);
+  Serial.print(F(";pesaje_placa="));
+  if (turnoEnPesaje) Serial.print(CAMIONES[turnoEnPesaje->idCamion].placa);
+  Serial.print(F(";salida_placa="));
+  if (turnoEnSalida) Serial.print(CAMIONES[turnoEnSalida->idCamion].placa);
+  Serial.println();
+  for (uint8_t i=0; i<MAX_TURNOS; i++) {
+    if (!turnos[i].activo) continue;
+    Turno &t = turnos[i];
+    Manifiesto &m = MANIFIESTOS[t.idManifiesto];
+    Serial.print(F("@PORTUS TurnoDetalle;placa=")); Serial.print(CAMIONES[t.idCamion].placa);
+    Serial.print(F(";contenedor=")); Serial.print(CONTENEDORES[m.idContenedor].codigo);
+    Serial.print(F(";posicion=")); Serial.print(t.posicionPatioAsignada);
+    Serial.print(F(";entrada_valida=")); Serial.print(t.pesajeInicialValido ? 1 : 0);
+    Serial.print(F(";salida_valida=")); Serial.print(t.pesajeFinalValido ? 1 : 0);
+    Serial.print(F(";entrada_kg=")); Serial.print(t.pesajeInicialKg, 3);
+    Serial.print(F(";salida_kg=")); Serial.println(t.pesajeFinalKg, 3);
+  }
 }

@@ -74,6 +74,7 @@ static void procesarComando(String cmd) {
     uint8_t n = stations_contarTurnosActivos();
     Serial.print(F("Turnos activos: ")); Serial.println(n);
     for (uint8_t i = 0; i < 6; i++) stations_imprimirEstadoTurno(i);
+    stations_imprimirTelemetria();
     if (safety_isEstopActive()) {
       Serial.println(F(">>> PARO DE EMERGENCIA ACTIVO <<<"));
     }
@@ -90,7 +91,9 @@ static void procesarComando(String cmd) {
       }
       Serial.print(F(" niveles=")); Serial.println(yard_getNiveles(i));
     }
+    yard_imprimirTelemetria();
   } else if (cmd == "GRUA") {
+    crane_imprimirTelemetria();
     Serial.print(F("Referenciada: ")); Serial.println(crane_isReferenced() ? "SI" : "NO");
     Serial.print(F("Libre (idle): ")); Serial.println(crane_isIdle() ? "SI" : "NO");
   } else if (cmd == "REARME") {

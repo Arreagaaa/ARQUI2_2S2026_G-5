@@ -42,8 +42,8 @@ export default function ReportesPage() {
     setCargando(true)
     setError(null)
     try {
-      const ini = inicio ? `${inicio}:00` : undefined
-      const finIso = fin ? `${fin}:00` : undefined
+      const ini = inicio ? new Date(`${inicio}:00`).toISOString() : undefined
+      const finIso = fin ? new Date(`${fin}:59`).toISOString() : undefined
       const m = await calcularReporte(ini, finIso)
       setResultado({ metricas: m, etiqueta, inicio, fin })
       push('exito', 'Reporte calculado para el rango seleccionado.')
@@ -57,8 +57,8 @@ export default function ReportesPage() {
   const exportar = async () => {
     setExportando(true)
     try {
-      const ini = resultado?.inicio ? `${resultado.inicio}:00` : undefined
-      const finIso = resultado?.fin ? `${resultado.fin}:00` : undefined
+      const ini = resultado?.inicio ? new Date(`${resultado.inicio}:00`).toISOString() : undefined
+      const finIso = resultado?.fin ? new Date(`${resultado.fin}:59`).toISOString() : undefined
       await exportarReporte(resultado?.etiqueta || etiqueta, ini, finIso)
       push('exito', 'Reporte exportado en formato CSV.')
     } catch (e) {
@@ -121,7 +121,7 @@ export default function ReportesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <Metrica etiqueta="Remociones por contenedor retirado" valor={m.remociones_por_contenedor_retirado} unidad="rem/retiro" />
             <Metrica etiqueta="Ciclos de grua por operacion completada" valor={m.ciclos_grua_por_operacion} unidad="ciclos/turno" />
-            <Metrica etiqueta="Distancia total recorrida por la grua" valor={m.distancia_total_grua_m} unidad="metros" />
+            <Metrica etiqueta="Distancia total recorrida por la grua" valor={m.distancia_total_grua_m ?? 'Sin medicion'} unidad="metros" />
             <Metrica etiqueta="Tiempo promedio de camion en la terminal" valor={m.tiempo_promedio_camion_min} unidad={`min (${m.tiempo_promedio_camion_seg}s)`} />
             <Metrica etiqueta="Tiempo promedio de retencion" valor={m.tiempo_promedio_retencion_min} unidad={`min (${m.tiempo_promedio_retencion_seg}s)`} />
             <Metrica etiqueta="Longitud maxima de la fila de espera" valor={m.longitud_maxima_fila_espera} unidad="vehiculos" />
@@ -162,7 +162,7 @@ export default function ReportesPage() {
               )}
             </Panel>
 
-            <Panel title="Conteos del periodo" bodyClassName="p-4">
+            <Panel title="Conteos del periodo" bodyClassName="p-4"><p className="text-xs text-inkfaint mb-3">{m.observaciones}</p>
               <div className="space-y-2 text-xs">
                 {[
                   ['Turnos cerrados', m.resumen_conteos.turnos_cerrados],
@@ -170,7 +170,7 @@ export default function ReportesPage() {
                   ['Ciclos de grua', m.resumen_conteos.total_ciclos_grua],
                   ['Citas totales', m.resumen_conteos.total_citas],
                   ['Citas en ventana', m.resumen_conteos.citas_en_ventana],
-                  ['Duracion promedio de ciclo (nota)', fmtSegundos(m.tiempo_promedio_camion_seg)],
+                  ['Duracion promedio de ciclo', fmtSegundos(m.tiempo_promedio_ciclo_seg)],
                 ].map(([k, v]) => (
                   <div key={String(k)} className="flex justify-between border-b border-line pb-1.5">
                     <span className="text-inkfaint">{k}</span>

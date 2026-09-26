@@ -53,4 +53,6 @@ int8_t yard_localizarContenedor(uint8_t idContenedor);
 
 EstadoPosicion yard_getEstado(int8_t posicion);
 
+void yard_imprimirTelemetria();
+
 #endif

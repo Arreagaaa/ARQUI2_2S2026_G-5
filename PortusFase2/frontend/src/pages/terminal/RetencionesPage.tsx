@@ -6,7 +6,7 @@ import { Check, X, PencilLine } from 'lucide-react'
 import { useApi } from '../../hooks/useApi'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../hooks/useAuth'
-import { listRetenciones, resolverRetencion } from '../../api/endpoints'
+import { listRetenciones, resolverRetencion, listTurnos } from '../../api/endpoints'
 import type { Retencion } from '../../types'
 import { DataTable, type Columna } from '../../components/DataTable'
 import { Modal, Panel, MonoId, StatusBadge, FormField } from '../../components/ui'
@@ -21,6 +21,8 @@ type TipoResolucion = 'ACLARAR' | 'CORREGIR' | 'RECHAZAR'
 
 export default function RetencionesPage() {
   const { push } = useToast()
+  const turnos = useApi(() => listTurnos(), [])
+  const fisicos = (turnos.data || []).filter((t) => t.hardware_key && !['Cerrado','Anulado'].includes(t.estado_actual) && (t.retenido_fisico || t.estado_actual==='Retenido'))
   const { user } = useAuth()
   const [filtroCausa, setFiltroCausa] = useState('')
   const [filtroEstado, setFiltroEstado] = useState('')
@@ -199,9 +201,10 @@ export default function RetencionesPage() {
 
   return (
     <div className="space-y-4">
+      {fisicos.length > 0 && <Panel title="Incidencias fisicas de Fase1" bodyClassName="p-4"><p className="text-xs">Ramal o espera local; no equivalen a una plaza administrativa asignada.</p>{fisicos.map((t) => <div key={t.id} className="text-xs text-warn py-2">{t.placa_vehiculo} · {t.contenedor_id} · {t.estacion_actual} · {t.estado_actual}</div>)}</Panel>}
       <Panel
         title="Retenciones abiertas"
-        subtitle={`${abiertas.length} vehiculos detenidos en el parqueo - rol en sesion: ${user?.rol}`}
+        subtitle={`${abiertas.length} retenciones administrativas abiertas - rol en sesion: ${user?.rol}`}
         bodyClassName="p-4"
       >
         <DataTable
@@ -212,7 +215,7 @@ export default function RetencionesPage() {
           error={retenciones.error}
           onRetry={retenciones.reload}
           toolbar={toolbar}
-          vacio="No hay retenciones abiertas. El parqueo esta despejado."
+          vacio="No hay retenciones administrativas abiertas. Las incidencias fisicas se muestran por separado."
         />
       </Panel>
 

@@ -97,7 +97,7 @@ export default function AppShell() {
             <Marca />
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <span className="hidden lg:block">
-                <LiveIndicator conectado={stream.conectado} ultimoMensajeEn={stream.ultimoMensajeEn} />
+                <LiveIndicator conectado={stream.conectado && stream.estado.enlace === 'CONECTADO'} ultimoMensajeEn={stream.ultimoMensajeEn} />
               </span>
               <div className="flex items-center gap-2 min-w-0 border-l border-line pl-2 sm:pl-3">
                 <div className="text-right min-w-0 hidden sm:block">

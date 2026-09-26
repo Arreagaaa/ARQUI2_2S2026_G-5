@@ -229,7 +229,7 @@ def resolve_retention(
         transition_turn(
             turno_id,
             estado_previo,
-            estacion="RUTA" if estado_previo == "EnRuta" else "SALIDA",
+            estacion={"EnGarita":"GARITA", "EnPesajeEntrada":"PESAJE", "EnRuta":"RUTA", "EnTransferencia":"TRANSFERENCIA", "EnPesajeSalida":"SALIDA", "EnSalida":"SALIDA"}.get(estado_previo, ret["estacion"]),
             origen="usuario",
             detalle=f"Retencion {ret['codigo_retencion']} resuelta mediante {resolucion}. Retornando a {estado_previo}.",
             valores={"resolucion": resolucion, "observacion": observacion}

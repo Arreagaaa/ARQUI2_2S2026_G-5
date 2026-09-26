@@ -36,7 +36,7 @@ export function DataTable<T>({
 }) {
   if (loading) return <Skeleton rows={5} />
   if (error) return <ErrorState mensaje={error} onRetry={onRetry} />
-  if (filas.length === 0) return <EmptyState mensaje={vacio} />
+  if (filas.length === 0) return <div className="space-y-3">{toolbar}<EmptyState mensaje={vacio} /></div>
 
   const claseCol = (c: Columna<T>) =>
     `${c.className || ''} ${c.ocultaEn === 'mobile' ? 'hidden sm:table-cell' : ''} ${

@@ -13,7 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useApi } from '../../hooks/useApi'
-import { historialGrua } from '../../api/endpoints'
+import { historialGrua, listAlarmas } from '../../api/endpoints'
 import type { CicloGrua } from '../../types'
 import { DataTable, type Columna } from '../../components/DataTable'
 import { Panel, MonoId, StatusBadge } from '../../components/ui'
@@ -24,10 +24,11 @@ export default function GruaPage() {
   const { stream } = useOutletContext<{ stream: SinopticoStream }>()
   const [rango, setRango] = useState(50)
   const grua = stream.estado.grua
+  const alarmas = useApi(() => listAlarmas(), [])
+  const fallasObservadas = [...(alarmas.data?.activas || []), ...(alarmas.data?.historicas || [])].filter((a) => ['AL03','AL04','AL05','AL06','AL07','AL08'].includes(a.codigo))
 
   // Recarga cuando llegan eventos de grua o patio desde el stream.
-  const topic = stream.ultimoEvento?.topic
-  const historial = useApi(() => historialGrua(rango), [rango, topic])
+  const historial = useApi(() => historialGrua(rango), [rango])
 
   const ciclos = useMemo(() => {
     const lista = historial.data || []
@@ -110,11 +111,11 @@ export default function GruaPage() {
           <div className="text-xs text-inkdim space-y-1">
             <div className="flex justify-between">
               <span className="text-inkfaint">Posicion</span>
-              <span className="font-mono text-ink">{grua.posicion}</span>
+              <span className="font-mono text-ink">{grua.posicion ?? 'Sin informar'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-inkfaint">Referenciada</span>
-              <span>{grua.referenciada ? 'si' : 'no'}</span>
+              <span>{grua.referenciada == null ? 'Sin confirmar' : grua.referenciada ? 'si' : 'no'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-inkfaint">Suspendida</span>
@@ -126,7 +127,7 @@ export default function GruaPage() {
           <p className="text-xs text-ink font-mono">{grua.trabajo_en_curso || 'Sin trabajo asignado'}</p>
         </Panel>
         <Panel title="Cola de trabajos" bodyClassName="p-3">
-          <span className="text-3xl font-semibold font-mono text-accent">{grua.cola_pendientes}</span>
+          <span className="text-3xl font-semibold font-mono text-accent">{grua.cola_pendientes ?? '-'}</span>
           <span className="text-xs text-inkfaint ml-2">pendientes</span>
         </Panel>
         <Panel title="Resumen del rango" bodyClassName="p-3 space-y-1">
@@ -190,7 +191,8 @@ export default function GruaPage() {
 
       {/* Historial de fallas */}
       <Panel title="Historial de eventos de falla" subtitle="Perdida de referencia, agarre no confirmado, movimiento abortado y perdida de carga" bodyClassName="p-4">
-        {fallas.length === 0 ? (
+        {fallasObservadas.map((a) => <div key={a.id} className="text-xs text-danger py-2">{fmtFechaHora(a.timestamp)} · {a.codigo} · {a.descripcion}</div>)}
+        {fallas.length === 0 && fallasObservadas.length === 0 ? (
           <p className="text-xs text-inkfaint py-4 text-center">No se registran fallas en el rango seleccionado.</p>
         ) : (
           <ul className="space-y-1.5">

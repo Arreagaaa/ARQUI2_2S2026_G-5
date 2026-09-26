@@ -60,6 +60,9 @@ export type EstadoTurno =
   | 'Anulado'
 
 export interface Turno {
+  naviera_id?: string
+  retenido_fisico?: number
+  hardware_key?: string
   id: number
   codigo_turno: string
   placa_vehiculo: string
@@ -122,6 +125,9 @@ export interface Retencion {
 }
 
 export interface CeldaPatio {
+  confirmado?: boolean
+  ocupada_fisica?: boolean | null
+  estado_fisico?: string
   posicion: number
   nivel: number
   contenedor_id: string | null
@@ -195,7 +201,9 @@ export interface FranjaBloqueada {
 export interface Metricas {
   remociones_por_contenedor_retirado: number
   ciclos_grua_por_operacion: number
-  distancia_total_grua_m: number
+  distancia_total_grua_m: number | null
+  tiempo_promedio_ciclo_seg: number
+  observaciones?: string
   tiempo_promedio_camion_seg: number
   tiempo_promedio_camion_min: number
   tiempo_promedio_retencion_seg: number
@@ -215,26 +223,31 @@ export interface Metricas {
 // Estado general de la maqueta que llega embebido en cada evento SSE
 // (campo "state" de app.py: terminal_state).
 export interface EstadoTerminal {
+  protocolo?: string
+  fuente?: string
+  sincronizado?: boolean
+  paro_emergencia?: boolean
+  vehiculos_dentro?: number | null
   modo: string
   enlace: string
   ultimo_latido_timestamp: string
   garita: { estado: string; vehiculo: string | null }
   talanquera: string
-  pesaje: { estado: string; ultimo_valor_kg: number; resultado: string }
+  pesaje: { estado: string; ultimo_valor_kg: number | null; resultado: string }
   aguja: string
   parqueo: Record<string, unknown>
   transferencia: { estado: string; vehiculo: string | null }
   grua: {
     estado: string
-    posicion: number
+    posicion: number | null
     trabajo_en_curso: string | null
-    cola_pendientes: number
+    cola_pendientes: number | null
     suspendida: boolean
-    referenciada: boolean
+    referenciada: boolean | null
     en_falla: boolean
   }
   puerta_salida: string
-  zona_espera: { cantidad_vehiculos: number }
+  zona_espera: { cantidad_vehiculos: number | null }
 }
 
 export interface EventoSSE {

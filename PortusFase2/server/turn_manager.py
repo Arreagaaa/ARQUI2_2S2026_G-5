@@ -16,7 +16,7 @@ ESTADOS_VALIDOS = {
     "EnTransferencia": ["EnPesajeSalida", "EnTransferencia", "Anulado"],
     "EnPesajeSalida": ["EnSalida", "Retenido", "Anulado"],
     "EnSalida": ["Cerrado", "Retenido"],
-    "Retenido": ["EnRuta", "EnSalida", "Anulado"],
+    "Retenido": ["EnGarita", "EnPesajeEntrada", "EnRuta", "EnTransferencia", "EnPesajeSalida", "EnSalida", "Anulado"],
     "Cerrado": [],
     "Anulado": []
 }

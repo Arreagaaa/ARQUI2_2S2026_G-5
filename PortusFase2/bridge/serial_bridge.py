@@ -21,6 +21,7 @@ except ImportError:
 
 import paho.mqtt.client as mqtt
 from .serial_protocol import SerialProtocol
+from .legacy_telemetry import LegacyTelemetry
 from .mock_controller import MockArduinoMega
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -50,21 +51,22 @@ class SerialMQTTBridge:
         self.last_heartbeat_time = time.time()
         self.link_lost = False
         self.lock = threading.Lock()
+        self.legacy = LegacyTelemetry()
+        self.protocol = "mock" if use_mock else "fase1"
 
     def start(self):
         self.running = True
         self._init_mqtt()
 
-        if self.use_mock or serial is None:
+        if self.use_mock:
             self._init_mock()
         else:
-            try:
-                self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
-                logging.info("Conectado exitosamente al puerto serial fisico %s a %d baud", self.port, self.baudrate)
-                threading.Thread(target=self._serial_read_loop, daemon=True).start()
-            except Exception as e:
-                logging.warning("No se pudo abrir el puerto serial fisico %s (%s). Iniciando en modo simulador.", self.port, e)
-                self._init_mock()
+            if serial is None:
+                raise RuntimeError("Instale pyserial para usar el Arduino real")
+            # A physical connection failure must never silently simulate hardware.
+            self._open_serial()
+            threading.Thread(target=self._serial_read_loop, daemon=True).start()
+            threading.Thread(target=self._query_loop, daemon=True).start()
 
         # Hilo de supervision de enlace (deteccion AL01 tras 15 segundos sin latido)
         threading.Thread(target=self._watchdog_loop, daemon=True).start()
@@ -111,6 +113,11 @@ class SerialMQTTBridge:
                 logging.error("Error procesando mensaje MQTT en portus/cmd/solicitud: %s", e)
 
     def send_command_to_controller(self, cmd: str, payload_str: str = ""):
+        if not self.use_mock:
+            self.publish_event("portus/cmd/respuesta", "RechazoComando", {
+                "resultado": "NAK", "comando": cmd,
+                "error": "El firmware Fase1 instalado solo permite supervision; opere el control local."})
+            return
         with self.lock:
             frame = SerialProtocol.build_frame(self.seq_out, "CMD", cmd, payload_str)
             self.seq_out = (self.seq_out + 1) % 65536
@@ -124,32 +131,74 @@ class SerialMQTTBridge:
             except Exception as e:
                 logging.error("Error escribiendo en puerto serial: %s", e)
 
+    def _open_serial(self):
+        try:
+            self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=0.1)
+            logging.info("Serial real %s a %d baud (sin simulacion)", self.port, self.baudrate)
+        except Exception as exc:
+            self.serial_conn = None
+            logging.error("Serial no disponible: %s. Se reintentara; NO se usara mock.", exc)
+
+    def _query_loop(self):
+        # Commands already supported by Fase1, all read-only. Also works with
+        # the older sketch without heartbeat. Never TARA/REARME/REINICIAR.
+        while self.running:
+            time.sleep(2)
+            if self.serial_conn and self.serial_conn.is_open:
+                try:
+                    with self.lock:
+                        self.serial_conn.write(b"ESTADO\nPATIO\nGRUA\n")
+                except Exception as exc:
+                    logging.warning("Consulta serial: %s", exc)
+
     def _serial_read_loop(self):
-        buf = ""
-        while self.running and self.serial_conn and self.serial_conn.is_open:
+        buf = b""
+        while self.running:
+            if not self.serial_conn:
+                time.sleep(2)
+                self._open_serial()
+                buf = b""
+                continue
             try:
-                raw_bytes = self.serial_conn.readline()
-                if raw_bytes:
-                    line = raw_bytes.decode("utf-8", errors="replace")
-                    self._handle_controller_line(line)
-            except Exception as e:
-                logging.error("Error de lectura en serial: %s", e)
-                time.sleep(0.5)
+                chunk = self.serial_conn.read(self.serial_conn.in_waiting or 1)
+                buf += chunk
+                while b"\n" in buf:
+                    raw, buf = buf.split(b"\n", 1)
+                    self._handle_controller_line(raw.decode("utf-8", errors="replace"))
+                if len(buf) > 8192:
+                    buf = b""
+            except Exception as exc:
+                logging.error("Lectura serial: %s", exc)
+                self.serial_conn.close()
+                self.serial_conn = None
 
     def _handle_controller_line(self, line: str):
         """
         Procesa una linea recibida del controlador (fisico o simulado)
         y la publica en el espacio de topicos portus/evt/* o portus/cmd/respuesta.
         """
+        legacy_event = self.legacy.feed(line)
         parsed = SerialProtocol.parse_frame(line)
         if not parsed:
             return
 
+        if not legacy_event and not parsed["valid"]:
+            return
         self.last_heartbeat_time = time.time()
         if self.link_lost:
             self.link_lost = False
             logging.info("Enlace con el controlador restablecido")
             self.publish_event("portus/evt/estado", "EnlaceRestablecido", {"estado": "CONECTADO"})
+
+        if legacy_event:
+            kind, values = legacy_event
+            if kind not in ("SnapshotInicio", "SnapshotParte", "SnapshotIncompleto"):
+                topic = next((name for word, name in (
+                    ("Pesaje", "pesaje"), ("Salida", "salida"),
+                    ("Grua", "grua"), ("Patio", "patio"),
+                    ("Paro", "alarma")) if word in kind), "estado")
+                self.publish_event("portus/evt/" + topic, kind, values)
+            return
 
         tipo = parsed["tipo"]
         cmd = parsed["cmd"]
@@ -218,6 +267,7 @@ class SerialMQTTBridge:
             "id": str(uuid.uuid4()),
             "timestamp": now_str,
             "origen": "controlador",
+            "protocolo": self.protocol,
             "tipo": tipo_evento,
             "datos": datos
         }
