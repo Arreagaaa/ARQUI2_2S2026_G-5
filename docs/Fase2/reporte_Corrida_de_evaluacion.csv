@@ -1,0 +1,18 @@
+PORTUS Fase 2 - Reporte de Corrida de Evaluacion
+Etiqueta de corrida,Corrida de evaluacion
+Fecha de generacion,2026-09-26 16:49:05
+
+Metrica,Valor,Unidad
+Remociones por contenedor retirado,1.33,remociones/retiro
+Ciclos de grua por operacion completada,2.38,ciclos/turno
+Distancia total recorrida por la grua,11.34,metros
+Tiempo promedio de camion en la terminal,163.0,segundos
+Tiempo promedio de retencion,124.2,segundos
+Longitud maxima de la fila de espera,1,vehiculos
+Porcentaje de citas cumplidas en ventana,66.7%,porcentaje
+
+Desglose de Retenciones por Causa y Resolucion
+Causa,Resolucion,Cantidad
+RT01,Corregir,2
+RT03,Rechazar,1
+RT04,Aclarar,2
