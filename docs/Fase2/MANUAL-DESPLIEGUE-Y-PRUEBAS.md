@@ -242,12 +242,29 @@ Comandos obligatorios:
 |---|---|
 | `/inicio` | Presenta el servicio y lista comandos. |
 | `/vincular CODIGO` | Vincula la cuenta de mensajeria al transportista. |
-| `/cita` | Lista contenedores con levante otorgado pendientes de cita. |
-| `/cita CONTENEDOR` | Agenda la proxima franja disponible para ese contenedor. |
+| `/cita` | Paso 1: lista los contenedores con levante otorgado pendientes de cita. |
+| `/cita CONTENEDOR` | Paso 2: ofrece las proximas franjas con capacidad disponible. |
+| Hora elegida (ej. `10:15`) o `/cita CONTENEDOR 10:15` | Paso 3: confirma la cita y envia el aviso obligatorio. |
 | `/miscitas` | Lista citas vigentes e historicas. |
 | `/estado CONTENEDOR` | Consulta estado de una carga propia. |
 | `/misturnos` | Lista turnos activos del transportista. |
 | `/ayuda` | Repite lista de comandos. |
+
+#### Vinculacion desde la interfaz web
+
+1. Iniciar sesion como `operador1` (rol TERMINAL) e entrar a la pestana *Citas*.
+2. En el panel **Vinculacion de transportista**, elegir el transportista y presionar `Generar codigo`.
+3. El codigo de 6 caracteres aparece en pantalla (vigencia 60 minutos) y el estado del transportista cambia a `Vinculado` cuando el chat ya amarro su cuenta.
+4. El transportista envia `/vincular CODIGO` desde Telegram (o desde el simulador) y el servicio responde `Vinculacion exitosa`.
+
+#### Bot de Telegram (demostracion desde el telefono)
+
+1. Converse con `@BotFather` en Telegram, ejecute `/newbot`, elija nombre y usuario y copie el token.
+2. Pegue el token en `PortusFase2/.env` como `TELEGRAM_BOT_TOKEN=<token>`.
+3. Reinicie `run_fase2.py`: el arranque imprime `Bot de Telegram activo (long polling)`.
+4. Busque su bot en Telegram, envie `/start` y opere con los comandos de la tabla.
+
+Mientras `TELEGRAM_BOT_TOKEN` este vacio el sistema opera igual: los avisos se encolan y se registran en el log con el prefijo `[SIN TELEGRAM]` (o `[SIN CANAL]` si el transportista no tiene cuenta vinculada). Ninguna peticion HTTP ni el hilo de telemetria esperan a Telegram.
 
 Endpoint local para simular mensajes mientras no se conecte Telegram:
 
@@ -269,6 +286,13 @@ Reglas importantes:
 1. Un transportista no puede consultar contenedores que no le pertenecen.
 2. Un usuario no vinculado recibe siempre solicitud de vinculacion.
 3. Un codigo de vinculacion vence a los 60 minutos y solo se usa una vez.
+4. Una franja admite dos citas; una franja bloqueada nunca se ofrece al transportista.
+5. Todo texto sin barra que no sea la eleccion de franja pendiente se responde con
+   `Comando ... no reconocido` mas la indicacion de `/ayuda`.
+6. Las 9 notificaciones automaticas se encolan en `PortusFase2/mensajeria/notifier.py`
+   y se entregan en un hilo propio: levante otorgado, levante retenido, cita asignada,
+   recordatorio de cita (1 hora antes), vehiculo retenido (RT01-RT06), retencion
+   resuelta, cita cancelada/reprogramada, turno cerrado y turno anulado.
 
 ---
 
@@ -280,12 +304,14 @@ Para la calificacion se recomienda seguir los 4 bloques del guion de demostracio
 1. **E01 (Manifiesto):** Iniciar sesion como `maersk`. En pestaña *Manifiestos*, presionar `+ Nuevo Manifiesto`. Llenar con contenedor `MSKU1002`, operacion `DEPOSITO`, peso `22500` g, transportista `trans_rapido`. El manifiesto pasa a estado `CREADO`.
 2. **E02 (Declaracion y Solicitud):** Iniciar sesion como `agente1`. En pestaña *Declaraciones*, el manifiesto aparece disponible. Presionar `Presentar Declaración` (ingresar numero ej. `DEC-01`, regimen `Importacion definitiva`, descripcion textil y valor). Luego presionar `Solicitar Levante`. Pasa a `LEVANTE_SOLICITADO`.
 3. **E03 (Retencion por Autoridad):** Iniciar sesion como `sat1`. En pestaña *Solicitudes de levante*, seleccionar `Evaluar Levante`, presionar `Retener Levante` e ingresar motivo (ej. "Falta factura comercial"). El transportista recibe aviso automatico y en garita el camion no puede ingresar.
-4. **E04 (Levante Verde y Cita):** El agente subsana. `sat1` presiona `Evaluar Levante`, selecciona `Canal VERDE` y presiona `Otorgar Levante`. El transportista `trans_rapido` recibe notificacion con canal verde. Desde la mensajeria escribe `/cita MSKU1002` y el sistema le confirma ventana de atencion (ej. 10:15 - 10:30). La cita aparece en la pestaña *Citas* de la terminal.
+4. **E04 (Levante Verde y Cita):** El agente subsana. `sat1` presiona `Evaluar Levante`, selecciona `Canal VERDE` y presiona `Otorgar Levante`. El transportista `trans_rapido` recibe notificacion con canal verde. Desde la mensajeria escribe `/cita MSKU1002` y el sistema le ofrece las proximas franjas con capacidad; al responder con la hora elegida (ej. `10:15`) confirma la ventana de atencion (ej. 10:15 - 10:30). La cita aparece en la pestaña *Citas* de la terminal.
 5. **E05 (Ingreso en Ventana):** El camion llega a garita dentro de ventana. La talanquera abre, se crea el turno `TRN-0001` y el sinoptico refleja el estado en menos de 2 segundos.
 
 ### Bloque 2: Excepciones Operativas y Pesaje (E06 a E08)
 6. **E06 (Fuera de Ventana):** Un segundo camion se presenta fuera de su horario asignado. El sistema genera automaticamente la retencion `RT04`, asigna la Plaza 1 del parqueo y notifica al transportista.
-7. **E07 (Discrepancia de Peso):** Un camion cruza la bascula con peso alterado (ej. 28000 g vs 22000 g declarado, diferencia > 5%). Se genera la retencion `RT01`, la aguja se posiciona hacia el parqueo (`AgujaParqueo`), asigna la Plaza 2 y muestra la evidencia de peso en la bandeja de *Retenciones*.
+7. **E07 (Discrepancia de Peso):** Un camion cruza la bascula con peso alterado (ej. 28000 g vs 22000 g declarado, diferencia > 5%). El servidor compara el `PesajeLectura` con el peso declarado del manifiesto y su tolerancia (5% por defecto): genera la alarma `AL09`, la retencion `RT01` (o `RT02` si ocurre en la salida), posiciona la aguja hacia el parqueo (`AgujaParqueo`), asigna plaza y muestra la evidencia de peso (declarado, medido, diferencia absoluta y porcentual) en la bandeja de *Retenciones*. El transportista recibe el aviso con esos mismos datos.
+
+   > Nota de la maqueta: la bascula fisica pesa en la escala del modelo (por ejemplo 1160 g), mientras que un manifiesto puede declarar tonelaje de terminal (por ejemplo 22000 g). Si el orden de magnitud del valor declarado y el medido difiere mas de 10 veces, el servidor no genera la retencion automatica y deja la advertencia `fuera de escala comparable` en el log: la retencion queda bajo criterio manual con `RT06`. Para demostrar E07 declare en el manifiesto el peso real de la maqueta y altere ese peso fisicamente.
 8. **E08 (Resolucion Corregir):** El operador de terminal (`operador1`) entra a la pestaña *Retenciones*. En la retencion RT01 presiona `Resolver` -> `Corregir Peso`. El manifiesto se actualiza con el peso medido, guarda el valor previo en su historial, la aguja libera la plaza (`AgujaLiberar`) y el vehiculo continúa su turno.
 
 ### Bloque 3: Control Aduanero y Seguridad de Acceso (E09 a E12)
@@ -313,6 +339,15 @@ py -3.13 -m unittest discover -s tests -v
 py -3.13 tests\validate_scenarios.py -v
 ```
 Ambas suites deben reportar `OK` confirmando el cumplimiento de la totalidad de las reglas del enunciado.
+
+> Estado observado el 2026-09-29: `validate_scenarios.py` reporta `OK` (12 pruebas).
+> En `unittest discover` quedan 5 pruebas en rojo de `test_api_gaps`
+> (`test_01` a `test_04` y `test_11`), **preexistentes y ajenas al canal de
+> mensajeria**: el guard de `protect_operational_data` en `server/app.py:333`
+> devuelve HTTP 409 `Fase1 opera localmente` para `POST /api/turnos` y
+> `POST /api/retenciones/<id>/resolver` mientras `terminal_state['protocolo']`
+> sea `fase1`. Verificado contra el arbol limpio (sin cambios de la sesion de
+> mensajeria).
 
 Prueba de navegador con Playwright:
 

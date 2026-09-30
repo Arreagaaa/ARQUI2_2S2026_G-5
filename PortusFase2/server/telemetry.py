@@ -90,12 +90,42 @@ def _turn(conn, plate, timestamp, local=None):
 def _observe(conn, row, status, station, timestamp, detail):
     if row is None:
         return
-    if row['estado_actual'] != status or row['estacion_actual'] != station:
+    cambio_estado = row['estado_actual'] != status
+    if cambio_estado or row['estacion_actual'] != station:
         _timeline(conn, row['id'], timestamp, detail, {'de_estado': row['estado_actual'], 'a_estado': status})
     end = timestamp if status in ('Cerrado', 'Anulado') else None
     duration = max(0, int((datetime.fromisoformat(timestamp) - datetime.fromisoformat(row['tiempo_inicio'])).total_seconds())) if end else 0
     conn.execute('UPDATE turnos SET estado_actual=?,estacion_actual=?,tiempo_fin=?,tiempo_total_seg=? WHERE id=?',
                  (status, station, end, duration, row['id']))
+    # Aviso obligatorio al transportista al cerrar o anular el turno.
+    if cambio_estado and status in ('Cerrado', 'Anulado'):
+        _notificar_fin_turno(row, status, duration, detail)
+
+
+def _notificar_fin_turno(row, status, duration, detail):
+    """
+    Encola la notificacion de cierre o anulacion del turno.
+    Import perezoso y captura total de errores: el camino de telemetria nunca
+    debe fallar por un problema del canal de mensajeria.
+    """
+    try:
+        from ..mensajeria import notifier
+        from ..mensajeria.messaging_service import TransportistaMessagingService
+        servicio = TransportistaMessagingService()
+        if status == 'Cerrado':
+            texto = servicio.notify_turno_cerrado(
+                row['transportista_id'], row['placa_vehiculo'], row['contenedor_id'],
+                row['tipo_operacion'], duration,
+            )
+        else:
+            texto = servicio.notify_turno_anulado(
+                row['transportista_id'], row['placa_vehiculo'], row['contenedor_id'],
+                detail or 'Operacion anulada',
+            )
+        notifier.send(row['transportista_id'], texto)
+    except Exception:
+        import logging
+        logging.exception("No se pudo encolar el aviso de fin de turno %s", row['id'])
 
 
 def process_event(state, event, topic):

@@ -301,9 +301,13 @@ class TestApiGaps(unittest.TestCase):
         conn.commit(); conn.close()
 
         resp = svc.process_message("chat_t1", "/cita MSKU1001")
-        self.assertIn("Cita confirmada", resp)
-        self.assertNotIn(h_ini, resp.split("Ventana de atencion:")[1][:6],
-                         "El servicio ofrecio una franja bloqueada")
+        self.assertIn("franjas con capacidad disponible", resp)
+        ofertadas = [linea[2:7] for linea in resp.splitlines() if linea.startswith("- ")]
+        self.assertTrue(ofertadas, resp)
+        self.assertNotIn(h_ini, ofertadas, "El servicio ofrecio una franja bloqueada")
+        # El transportista elige una franja y la cita se confirma
+        resp_confirmada = svc.process_message("chat_t1", ofertadas[0])
+        self.assertIn("Cita confirmada", resp_confirmada)
 
     # ----------------------------------------------------------
     # Matriz de permisos en servidor (E12)

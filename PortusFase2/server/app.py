@@ -9,6 +9,7 @@ import os
 import secrets
 import copy
 import json
+import re
 import uuid
 import time
 import queue
@@ -24,7 +25,10 @@ import paho.mqtt.client as mqtt
 
 from .database import get_db_connection, init_database
 from .auth import authenticate_user, login_required, require_permission, PERMISOS_MATRIZ
-from .turn_manager import create_turn, transition_turn, get_turn_timeline, add_timeline_event
+from .turn_manager import (
+    create_turn, transition_turn, get_turn_timeline, add_timeline_event,
+    get_active_turn_by_vehicle
+)
 from .retention_manager import (
     get_parking_occupancy, assign_retention, resolve_retention, CAUSAS_ROLES
 )
@@ -35,6 +39,7 @@ from .yard_crane_manager import (
 )
 from .metrics import calculate_metrics, export_report_csv
 from ..mensajeria.messaging_service import TransportistaMessagingService, generate_binding_code
+from ..mensajeria import notifier
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -118,8 +123,164 @@ def on_mqtt_message(client, userdata, msg):
             if process_event(terminal_state, data, msg.topic):
                 _refresh_parqueo_state()
                 dispatch_event_to_sse({"topic": msg.topic, "data": data, "state": copy.deepcopy(terminal_state)})
+                _evaluar_pesaje_tol(data)
     except Exception:
         logging.exception("Error procesando telemetria MQTT")
+
+
+# Umbral de orden de magnitud entre el pesaje fisico y el declarado.
+# La maqueta pesa en gramos (p. ej. 1160 g) mientras que un manifiesto puede
+# declarar tonelaje de terminal (p. ej. 22500 g). Si las dos escalas no son
+# comparables no se genera retencion automatica: se deja constancia en el log y
+# la retencion queda bajo criterio manual (RT06). Asi un pesaje dentro del
+# proceso feliz nunca cae en RT01 por incompatibilidad de unidades.
+ESCALA_MAX_RATIO = 10.0
+
+
+def _peso_del_evento(data, es_declarado=False):
+    """
+    Extrae el peso (kg) de un evento PesajeLectura, del campo numerico o del
+    texto de detalle. Acepta el evento completo y su carga util anidada en
+    'datos', porque segun el puente llega de las dos formas.
+    """
+    clave = "declarado_kg" if es_declarado else "peso"
+    alternativa = None if es_declarado else "declarado"
+    patron = r"declarado:\s*([-\d.]+)" if es_declarado else r"Peso leido:\s*([-\d.]+)"
+    internos = data.get("datos")
+    fuentes = [data, internos] if isinstance(internos, dict) else [data]
+    for fuente in fuentes:
+        for nombre in ((clave,) if alternativa is None else (clave, alternativa)):
+            valor = fuente.get(nombre)
+            if valor is None:
+                continue
+            try:
+                return float(valor)
+            except (TypeError, ValueError):
+                break
+        m = re.search(patron, str(fuente.get("detalle", "")))
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def _turno_para_pesaje():
+    """Turno que corresponde al pesaje: por placa identificada, por estacion o el unico activo."""
+    placa = terminal_state.get("pesaje_placa")
+    if placa:
+        turno = get_active_turn_by_vehicle(placa)
+        if turno:
+            return dict(turno)
+    conn = get_db_connection()
+    try:
+        for estacion in ("PESAJE", "SALIDA"):
+            fila = conn.execute(
+                "SELECT * FROM turnos WHERE estacion_actual=? AND estado_actual NOT IN ('Cerrado','Anulado') "
+                "ORDER BY id DESC LIMIT 1", (estacion,)
+            ).fetchone()
+            if fila:
+                return dict(fila)
+        activos = conn.execute(
+            "SELECT * FROM turnos WHERE estado_actual NOT IN ('Cerrado','Anulado') ORDER BY id DESC LIMIT 2"
+        ).fetchall()
+        if len(activos) == 1:
+            return dict(activos[0])
+        return None
+    finally:
+        conn.close()
+
+
+def _evaluar_pesaje_tol(data):
+    """
+    RT01/RT02: genera la retencion cuando el pesaje excede la tolerancia del
+    manifiesto y lanza la alarma AL09. Nunca propaga excepciones: forma parte del
+    camino de telemetria.
+    """
+    if not isinstance(data, dict) or data.get("tipo") != "PesajeLectura":
+        return
+    peso_kg = _peso_del_evento(data)
+    if peso_kg is None or peso_kg <= 0:
+        return
+    turno = _turno_para_pesaje()
+    if not turno:
+        return
+    declarado_kg = None
+    tolerancia = 5.0
+    conn = get_db_connection()
+    try:
+        manifiesto = None
+        if turno.get("manifiesto_id"):
+            manifiesto = conn.execute(
+                "SELECT peso_declarado_g, tolerancia_pct FROM manifiestos WHERE id=?",
+                (turno["manifiesto_id"],)
+            ).fetchone()
+        if manifiesto:
+            declarado_kg = (manifiesto["peso_declarado_g"] or 0) / 1000.0
+            tolerancia = float(manifiesto["tolerancia_pct"] or 5.0)
+        if not declarado_kg:
+            declarado_kg = (turno.get("peso_declarado_g") or 0) / 1000.0
+        if not declarado_kg:
+            declarado_kg = _peso_del_evento(data, es_declarado=True)
+        if not declarado_kg or declarado_kg <= 0:
+            return
+        if max(peso_kg, declarado_kg) / min(peso_kg, declarado_kg) > ESCALA_MAX_RATIO:
+            logging.warning(
+                "Pesaje %s kg vs declarado %s kg fuera de escala comparable: no se genera RT01",
+                peso_kg, declarado_kg
+            )
+            return
+        diferencia = abs(peso_kg - declarado_kg)
+        if diferencia <= declarado_kg * tolerancia / 100.0:
+            return
+        es_salida = turno.get("estacion_actual") == "SALIDA"
+        causa = "RT02" if es_salida else "RT01"
+        abierta = conn.execute(
+            "SELECT 1 FROM retenciones WHERE turno_id=? AND estado='ABIERTA'", (turno["id"],)
+        ).fetchone()
+        if abierta:
+            return
+        estacion = "SALIDA" if es_salida else "PESAJE"
+        peso_declarado_g = int(round(declarado_kg * 1000))
+        peso_medido_g = int(round(peso_kg * 1000))
+    finally:
+        conn.close()
+
+    raise_alarm("AL09", origen="servidor", datos={
+        "turno": turno.get("codigo"), "causa": causa,
+        "peso_declarado_g": peso_declarado_g, "peso_medido_g": peso_medido_g,
+        "diferencia_g": abs(peso_medido_g - peso_declarado_g),
+        "diferencia_pct": round(abs(peso_medido_g - peso_declarado_g) * 100.0 / peso_declarado_g, 2),
+    })
+    resumen = assign_retention(
+        turno["id"], causa, estacion=estacion,
+        peso_declarado_g=peso_declarado_g, peso_medido_g=peso_medido_g,
+    )
+    if not resumen:
+        raise_alarm("AL11", origen="servidor", datos={"turno": turno.get("codigo"), "causa": causa})
+        return
+    if mqtt_client:
+        try:
+            mqtt_client.publish("portus/cmd/aguja", json.dumps({
+                "evento": "RetencionCreada", "turno": turno.get("codigo"), "causa": causa, "estacion": estacion,
+            }))
+        except Exception:
+            logging.exception("No se pudo publicar el desvio de la aguja")
+    notifier.send(
+        turno["transportista_id"],
+        msg_service.notify_vehiculo_retenido(
+            turno["transportista_id"], turno.get("placa_vehiculo"), turno.get("contenedor_id"), causa,
+            peso_dec=peso_declarado_g, peso_med=peso_medido_g,
+        )
+    )
+    _refresh_parqueo_state()
+    dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": resumen,
+                           "state": copy.deepcopy(terminal_state)})
+    logging.info(
+        "Retencion %s generada por discrepancia de peso: declarado %s g, medido %s g",
+        causa, peso_declarado_g, peso_medido_g
+    )
 
 
 def init_mqtt():
@@ -484,9 +645,15 @@ def anular_manifiesto(manif_id):
 @login_required
 def list_transportistas():
     conn = get_db_connection()
-    rows = conn.execute(
-        "SELECT username, nombre_completo FROM usuarios WHERE rol = 'TRANSPORTISTA' ORDER BY username"
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT u.username, u.nombre_completo,
+               (SELECT COUNT(*) FROM vinculaciones_transportista v
+                WHERE v.transportista_id = u.username AND v.usado = 1
+                  AND v.chat_id IS NOT NULL AND v.chat_id <> '') AS chats_vinculados
+        FROM usuarios u
+        WHERE u.rol = 'TRANSPORTISTA'
+        ORDER BY u.username
+    """).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
 
@@ -657,7 +824,10 @@ def resolver_levante():
         conn.close()
 
         # Notificacion automatica obligatoria al transportista
-        msg_service.notify_levante_otorgado(manif["transportista_id"], manif["contenedor_id"], canal)
+        notifier.send(
+            manif["transportista_id"],
+            msg_service.notify_levante_otorgado(manif["transportista_id"], manif["contenedor_id"], canal)
+        )
         return jsonify({"success": True, "message": f"Levante otorgado con canal {canal}"})
     else:
         conn.execute("""
@@ -669,7 +839,10 @@ def resolver_levante():
         conn.close()
 
         # Notificacion automatica obligatoria
-        msg_service.notify_levante_retenido(manif["transportista_id"], manif["contenedor_id"], motivo)
+        notifier.send(
+            manif["transportista_id"],
+            msg_service.notify_levante_retenido(manif["transportista_id"], manif["contenedor_id"], motivo)
+        )
         return jsonify({"success": True, "message": "Levante retenido por Autoridad Aduanera"})
 
 
@@ -758,10 +931,12 @@ def retener_turno_manual(turno_id):
     turno = conn.execute("SELECT * FROM turnos WHERE id = ?", (turno_id,)).fetchone()
     conn.close()
     if turno:
-        aviso = msg_service.notify_vehiculo_retenido(
-            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"], "RT06"
+        notifier.send(
+            turno["transportista_id"],
+            msg_service.notify_vehiculo_retenido(
+                turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"], "RT06"
+            )
         )
-        logging.info("Notificacion a transportista: %s", aviso)
 
     _refresh_parqueo_state()
     dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionCreada", "datos": res}})
@@ -780,11 +955,13 @@ def anular_turno(turno_id):
     turno = conn.execute("SELECT * FROM turnos WHERE id = ?", (turno_id,)).fetchone()
     conn.close()
     if turno:
-        aviso = msg_service.notify_turno_anulado(
-            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
-            "Anulacion manual por operador de terminal"
+        notifier.send(
+            turno["transportista_id"],
+            msg_service.notify_turno_anulado(
+                turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
+                "Anulacion manual por operador de terminal"
+            )
         )
-        logging.info("Notificacion a transportista: %s", aviso)
     dispatch_event_to_sse({"topic": "portus/evt/turnos", "data": {"tipo": "TurnoAnulado", "datos": {"turno_id": turno_id}}})
 
     return jsonify({"success": True, "message": "Turno anulado"})
@@ -870,13 +1047,24 @@ def resolve_retention_endpoint(ret_id):
     ret = conn.execute("SELECT * FROM retenciones WHERE id = ?", (ret_id,)).fetchone()
     conn.close()
     if turno and ret:
-        aviso = msg_service.notify_retencion_resuelta(
-            turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
-            resolucion,
-            nuevo_peso=ret["peso_medido_g"] if resolucion == "CORREGIR" else None,
-            motivo=motivo if resolucion == "RECHAZAR" else None
+        notifier.send(
+            turno["transportista_id"],
+            msg_service.notify_retencion_resuelta(
+                turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
+                resolucion,
+                nuevo_peso=ret["peso_medido_g"] if resolucion == "CORREGIR" else None,
+                motivo=motivo if resolucion == "RECHAZAR" else None
+            )
         )
-        logging.info("Notificacion a transportista: %s", aviso)
+        # Rechazar deja el turno Anulado: ademas corre el aviso de anulacion.
+        if resolucion == "RECHAZAR":
+            notifier.send(
+                turno["transportista_id"],
+                msg_service.notify_turno_anulado(
+                    turno["transportista_id"], turno["placa_vehiculo"], turno["contenedor_id"],
+                    motivo or "Rechazo de la retencion"
+                )
+            )
 
     _refresh_parqueo_state()
     dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionResuelta", "datos": res}})
@@ -1128,10 +1316,12 @@ def crear_turno_desde_plataforma():
                 mqtt_client.publish("portus/cmd/solicitud", json.dumps({
                     "comando": "AgujaParqueo", "parametros": {"plaza": res["plaza"]}
                 }))
-            aviso = msg_service.notify_vehiculo_retenido(
-                manif["transportista_id"], placa, manif["contenedor_id"], "RT04"
+            notifier.send(
+                manif["transportista_id"],
+                msg_service.notify_vehiculo_retenido(
+                    manif["transportista_id"], placa, manif["contenedor_id"], "RT04"
+                )
             )
-            logging.info("Notificacion a transportista: %s", aviso)
             _refresh_parqueo_state()
             dispatch_event_to_sse({"topic": "portus/evt/retencion", "data": {"tipo": "RetencionCreada", "datos": res}})
             respuesta["retencion"] = res
@@ -1230,10 +1420,13 @@ def cancelar_cita(cita_id):
     conn.commit()
     conn.close()
 
-    aviso = msg_service.notify_cita_cancelada_reprogramada(
-        cita["transportista_id"], cita["contenedor_id"], "cancelada"
+    notifier.send(
+        cita["transportista_id"],
+        msg_service.notify_cita_cancelada_reprogramada(
+            cita["transportista_id"], cita["contenedor_id"], "cancelada"
+        )
     )
-    logging.info("Notificacion a transportista: %s (motivo: %s)", aviso, motivo)
+    logging.info("Cita %s cancelada (motivo: %s)", cita_id, motivo)
 
     dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "CitaCancelada", "datos": {"cita_id": cita_id}}})
     return jsonify({"success": True, "message": f"Cita del contenedor {cita['contenedor_id']} cancelada y transportista notificado"})
@@ -1276,11 +1469,13 @@ def reprogramar_cita(cita_id):
     conn.commit()
     conn.close()
 
-    aviso = msg_service.notify_cita_cancelada_reprogramada(
-        cita["transportista_id"], cita["contenedor_id"], "reprogramada",
-        nueva_ventana=f"{fecha_nueva} de {hora_nueva} a {hora_fin_nueva}"
+    notifier.send(
+        cita["transportista_id"],
+        msg_service.notify_cita_cancelada_reprogramada(
+            cita["transportista_id"], cita["contenedor_id"], "reprogramada",
+            nueva_ventana=f"{fecha_nueva} de {hora_nueva} a {hora_fin_nueva}"
+        )
     )
-    logging.info("Notificacion a transportista: %s", aviso)
 
     dispatch_event_to_sse({"topic": "portus/evt/citas", "data": {"tipo": "CitaReprogramada", "datos": {"cita_id": cita_id}}})
     return jsonify({"success": True, "message": f"Cita reprogramada a {fecha_nueva} {hora_nueva}-{hora_fin_nueva} y notificada al transportista"})
