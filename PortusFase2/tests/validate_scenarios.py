@@ -100,7 +100,11 @@ class Test15Escenarios(unittest.TestCase):
         code = generate_binding_code("trans_rapido")
         self.msg_svc.process_message("chat_e04", f"/vincular {code}")
         resp_cita = self.msg_svc.process_message("chat_e04", "/cita MSKU1002")
-        self.assertIn("Cita confirmada", resp_cita)
+        self.assertIn("franjas con capacidad disponible", resp_cita)
+        ofertadas = [linea[2:7] for linea in resp_cita.splitlines() if linea.startswith("- ")]
+        self.assertTrue(ofertadas, resp_cita)
+        resp_confirmada = self.msg_svc.process_message("chat_e04", ofertadas[0])
+        self.assertIn("Cita confirmada", resp_confirmada)
 
         # E05: Camion llega en ventana -> se autoriza ingreso y crea turno
         turno_id = create_turn(

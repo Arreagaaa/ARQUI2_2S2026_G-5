@@ -112,6 +112,7 @@ def init_database():
         hora_fin TEXT NOT NULL,
         estado TEXT NOT NULL DEFAULT 'PROGRAMADA' CHECK (estado IN ('PROGRAMADA', 'CUMPLIDA', 'VENCIDA', 'CANCELADA')),
         cumplida_en_ventana INTEGER DEFAULT 0,
+        recordatorio_enviado INTEGER DEFAULT 0,
         created_at TEXT NOT NULL,
         FOREIGN KEY (transportista_id) REFERENCES usuarios (username),
         FOREIGN KEY (manifiesto_id) REFERENCES manifiestos (id)
@@ -275,6 +276,10 @@ def init_database():
         if name not in columns:
             c.execute(f"ALTER TABLE turnos ADD COLUMN {name} {definition}")
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS hardware_turn_key ON turnos(hardware_key)")
+    # 14. Marca de recordatorio de cita ya enviado (evita duplicados en el hilo de avisos)
+    columnas_citas = {r[1] for r in c.execute("PRAGMA table_info(citas)")}
+    if "recordatorio_enviado" not in columnas_citas:
+        c.execute("ALTER TABLE citas ADD COLUMN recordatorio_enviado INTEGER DEFAULT 0")
     conn.commit()
     seed_initial_data(conn)
     conn.close()

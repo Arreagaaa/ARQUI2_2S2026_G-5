@@ -273,4 +273,5 @@ export interface CatalogoContenedor {
 export interface TransportistaInfo {
   username: string
   nombre_completo: string
+  chats_vinculados: number
 }

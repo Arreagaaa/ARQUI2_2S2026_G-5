@@ -5,11 +5,18 @@ Implementa los siete comandos obligatorios (/inicio, /vincular, /cita, /miscitas
 a 60 minutos, y las nueve notificaciones automaticas con aislamiento estricto de datos.
 """
 
+import time
 import string
 import random
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from ..server.database import get_db_connection
+from . import notifier
+
+# Vida util de una seleccion de franja pendiente antes de descartarse.
+PENDIENTE_TTL_SEG = 300
+# Cantidad de franjas que se ofrecen al transportista en un solo paso.
+FRANJAS_OFERTADAS = 4
 
 
 def generate_binding_code(transportista_id: str, creado_por: str = "operador1") -> str:
@@ -38,6 +45,9 @@ class TransportistaMessagingService:
     def __init__(self):
         # Mapeo en memoria de chat_id -> transportista_id vinculado
         self.session_bindings: Dict[str, str] = {}
+        # Solicitud de cita en curso: chat_id -> {contenedor, ts}.
+        # Permite el flujo obligatorio de tres pasos: contenedor -> franja -> confirmacion.
+        self.pending: Dict[str, Dict[str, Any]] = {}
         self._load_active_bindings()
 
     def _load_active_bindings(self):
@@ -56,7 +66,9 @@ class TransportistaMessagingService:
             return "Por favor ingrese un comando. Escriba /inicio o /ayuda para ver las opciones."
 
         parts = cmd_raw.split()
-        cmd = parts[0].lower()
+        # En Telegram un comando puede llegar como /ayuda@MiBot (uso en grupos):
+        # el sufijo se descarta para no romper el reconocimiento del comando.
+        cmd = parts[0].lower().split("@")[0]
         args = parts[1:]
 
         # Comandos publicos sin necesidad de vinculacion previa
@@ -101,9 +113,22 @@ class TransportistaMessagingService:
                 "/vincular CODIGO"
             )
 
+        # Texto sin barra: solo se interpreta como eleccion de franja cuando
+        # existe una solicitud de cita pendiente para este chat. En cualquier
+        # otro caso se responde que el comando no fue reconocido y se ofrece /ayuda.
+        if not cmd_raw.startswith("/"):
+            pendiente = self.pending.get(chat_id)
+            if pendiente and (time.time() - float(pendiente.get("ts", 0))) <= PENDIENTE_TTL_SEG:
+                return self._cmd_cita(transportista_id, [pendiente["contenedor"], cmd_raw], chat_id)
+            self.pending.pop(chat_id, None)
+            return (
+                f"Comando '{cmd_raw}' no reconocido.\n"
+                "Escriba /ayuda para ver la lista de comandos validos."
+            )
+
         # Comandos autenticados
         if cmd == "/cita":
-            return self._cmd_cita(transportista_id, args)
+            return self._cmd_cita(transportista_id, args, chat_id)
         elif cmd == "/miscitas":
             return self._cmd_miscitas(transportista_id)
         elif cmd == "/estado":
@@ -149,7 +174,13 @@ class TransportistaMessagingService:
         self.session_bindings[chat_id] = transportista_id
         return f"Vinculacion exitosa: Cuenta vinculada al transportista '{nombre}'. Ya puede operar con /cita o /misturnos."
 
-    def _cmd_cita(self, transportista_id: str, args: List[str]) -> str:
+    def _cmd_cita(self, transportista_id: str, args: List[str], chat_id: Optional[str] = None) -> str:
+        """
+        Solicitud de cita en tres pasos obligatorios:
+        1. /cita                -> lista los contenedores con levante y sin cita.
+        2. /cita CONTENEDOR     -> ofrece las proximas franjas con capacidad.
+        3. /cita CONTENEDOR HH:MM (o el chat indicando la hora) -> confirma la cita.
+        """
         conn = get_db_connection()
         # Buscar contenedores asignados a este transportista con levante otorgado y sin cita vigente
         manifs = conn.execute("""
@@ -163,11 +194,15 @@ class TransportistaMessagingService:
 
         if not manifs:
             conn.close()
+            if chat_id:
+                self.pending.pop(chat_id, None)
             return "No tiene contenedores con levante aduanero otorgado pendientes de cita."
 
-        # Si no especifico contenedor en args, lista opciones
+        # Paso 1: sin argumentos se listan las opciones disponibles
         if not args:
             lista = "\n".join([f"- {m['contenedor_id']} (Manifiesto {m['id']}, Tipo: {m['tipo_operacion']})" for m in manifs])
+            if chat_id:
+                self.pending.pop(chat_id, None)
             conn.close()
             return (
                 "Contenedores autorizados disponibles para cita:\n"
@@ -185,42 +220,46 @@ class TransportistaMessagingService:
 
         if not manif_elegido:
             conn.close()
+            if chat_id:
+                self.pending.pop(chat_id, None)
             return f"El contenedor {cid} no existe o no cuenta con levante aduanero otorgado para su cuenta."
 
-        # Asignar la proxima franja disponible de 15 minutos con capacidad (< 2 citas)
-        now = datetime.now()
-        fecha_hoy = now.strftime("%Y-%m-%d")
+        ahora = datetime.now()
+        fecha_hoy = ahora.strftime("%Y-%m-%d")
+        oferta = self._oferta_franjas(conn, fecha_hoy, ahora)
 
-        # Probar franjas en bloques de 15 minutos en las proximas horas
-        franja_asignada = None
-        hora_cursor = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0) + timedelta(minutes=15)
-
-        for _ in range(16): # probar proximas 4 horas
-            h_ini = hora_cursor.strftime("%H:%M")
-            h_fin = (hora_cursor + timedelta(minutes=15)).strftime("%H:%M")
-
-            citas_en_franja = conn.execute("""
-            SELECT COUNT(*) as c FROM citas
-            WHERE fecha = ? AND hora_inicio = ? AND estado = 'PROGRAMADA'
-            """, (fecha_hoy, h_ini)).fetchone()["c"]
-
-            # Una franja bloqueada por el operador no se ofrece al transportista
-            franja_bloqueada = conn.execute("""
-            SELECT COUNT(*) as c FROM franjas_bloqueadas
-            WHERE fecha = ? AND hora_inicio = ?
-            """, (fecha_hoy, h_ini)).fetchone()["c"]
-
-            # Regla: una franja llena o bloqueada no se ofrece; se ofrece la siguiente con capacidad
-            if citas_en_franja < 2 and not franja_bloqueada:
-                franja_asignada = (h_ini, h_fin)
-                break
-            hora_cursor += timedelta(minutes=15)
-
-        if not franja_asignada:
+        if not oferta:
             conn.close()
+            if chat_id:
+                self.pending.pop(chat_id, None)
             return "No hay franjas de atencion disponibles en las proximas horas. Intente mas tarde."
 
-        h_ini, h_fin = franja_asignada
+        hora_elegida = args[1].strip() if len(args) > 1 else None
+
+        # Paso 2: se ofrecen las franjas disponibles y se espera la eleccion
+        if not hora_elegida:
+            if chat_id:
+                self.pending[chat_id] = {"contenedor": cid, "ts": time.time()}
+            lineas = "\n".join(f"- {h_ini} a {h_fin}" for h_ini, h_fin in oferta)
+            conn.close()
+            return (
+                f"Contenedor {cid}: proximas franjas con capacidad disponible:\n"
+                f"{lineas}\n\n"
+                f"Elija una escribiendo su hora de inicio, por ejemplo: {oferta[0][0]}\n"
+                f"(o en un solo paso: /cita {cid} {oferta[0][0]})"
+            )
+
+        # Paso 3: la franja elegida debe seguir entre las ofrecidas y con capacidad
+        disponibles = {h_ini: h_fin for h_ini, h_fin in oferta}
+        if hora_elegida not in disponibles:
+            conn.close()
+            return (
+                f"La franja {hora_elegida} no esta disponible.\n"
+                "Escriba /cita para ver las franjas vigentes y elija una de ellas."
+            )
+
+        h_ini = hora_elegida
+        h_fin = disponibles[h_ini]
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute("""
         INSERT INTO citas (transportista_id, contenedor_id, manifiesto_id, fecha, hora_inicio, hora_fin, estado, created_at)
@@ -229,6 +268,15 @@ class TransportistaMessagingService:
         conn.commit()
         conn.close()
 
+        if chat_id:
+            self.pending.pop(chat_id, None)
+
+        # Notificacion automatica obligatoria: asignacion de cita
+        notifier.send(
+            transportista_id,
+            self.notify_cita_asignada(transportista_id, cid, fecha_hoy, h_ini, h_fin),
+        )
+
         return (
             f"Cita confirmada exitosamente.\n"
             f"Contenedor: {cid}\n"
@@ -236,6 +284,38 @@ class TransportistaMessagingService:
             f"Ventana de atencion: {h_ini} a {h_fin}\n"
             f"Tolerancia de presentacion: hasta 5 minutos despues de las {h_fin}."
         )
+
+    def _oferta_franjas(self, conn, fecha: str, ahora: datetime, cantidad: int = FRANJAS_OFERTADAS) -> List[tuple]:
+        """
+        Proximas franjas de 15 minutos con capacidad disponible (menos de dos
+        citas) y no bloqueadas por el operador. Se exploran las proximas 4 horas.
+        """
+        oferta: List[tuple] = []
+        cursor = ahora.replace(minute=(ahora.minute // 15) * 15, second=0, microsecond=0) + timedelta(minutes=15)
+        for _ in range(16):
+            h_ini = cursor.strftime("%H:%M")
+            h_fin = (cursor + timedelta(minutes=15)).strftime("%H:%M")
+            if self._franja_disponible(conn, fecha, h_ini):
+                oferta.append((h_ini, h_fin))
+                if len(oferta) >= cantidad:
+                    break
+            cursor += timedelta(minutes=15)
+        return oferta
+
+    @staticmethod
+    def _franja_disponible(conn, fecha: str, h_ini: str) -> bool:
+        """Reglas de la agenda: capacidad maxima de dos y franja no bloqueada."""
+        ocupadas = conn.execute("""
+        SELECT COUNT(*) as c FROM citas
+        WHERE fecha = ? AND hora_inicio = ? AND estado = 'PROGRAMADA'
+        """, (fecha, h_ini)).fetchone()["c"]
+        if ocupadas >= 2:
+            return False
+        bloqueada = conn.execute("""
+        SELECT COUNT(*) as c FROM franjas_bloqueadas
+        WHERE fecha = ? AND hora_inicio = ?
+        """, (fecha, h_ini)).fetchone()["c"]
+        return bloqueada == 0
 
     def _cmd_miscitas(self, transportista_id: str) -> str:
         conn = get_db_connection()

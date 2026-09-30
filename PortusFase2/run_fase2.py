@@ -138,7 +138,19 @@ def main():
     init_mqtt()
     bridge.start()
 
-
+    # 4. Canal de mensajeria del transportista
+    #    Cola de entrega de los 9 avisos, recordatorios de cita y bot de Telegram.
+    #    Sin TELEGRAM_BOT_TOKEN el bot queda desactivado y los avisos se registran
+    #    en el log (modo simulador, utilizable con /api/mensajeria/simulador).
+    from PortusFase2.mensajeria import notifier, telegram_bot
+    from PortusFase2.server.app import msg_service
+    logging.info("Paso 4: Iniciando canal de mensajeria del transportista...")
+    notifier.start()
+    notifier.start_reminders()
+    if telegram_bot.start(msg_service):
+        logging.info("Bot de Telegram activo (long polling)")
+    else:
+        logging.info("Bot de Telegram desactivado: defina TELEGRAM_BOT_TOKEN en PortusFase2/.env")
 
     # 5. Servidor Web
     print("-" * 65)

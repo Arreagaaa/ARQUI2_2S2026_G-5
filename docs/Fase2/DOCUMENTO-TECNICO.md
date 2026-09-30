@@ -22,7 +22,7 @@ El alcance implementado cubre:
 8. Parqueo de retencion de 3 plazas administradas de forma logica sobre el ramal fisico existente, evaluando las seis causas (RT01 a RT06) y ejecutando las tres resoluciones (`Aclarar`, `Corregir`, `Rechazar`).
 9. Catalogo de alarmas AL01 a AL14 con distincion entre activas e historicas, reconocimiento individual para severidad Alta/Critica y masivo para Baja/Media.
 10. Calculo de las 8 metricas de operacion sobre cualquier rango de corrida con exportacion a CSV.
-11. Servicio conversacional de mensajeria para el Transportista con los 7 comandos obligatorios, codigos de vinculacion temporales a 60 minutos y las 9 notificaciones automaticas.
+11. Servicio conversacional de mensajeria para el Transportista con los 7 comandos obligatorios, codigos de vinculacion temporales a 60 minutos y las 9 notificaciones automaticas, entregado por una cola asincrona con bot de Telegram (long polling) y degradacion segura sin token.
 
 ---
 
@@ -252,3 +252,70 @@ La Seccion 12.1 del enunciado exige autonomia y degradacion segura:
    - Rechaza nuevos accesos hasta que el enlace se restablezca.
    - Almacena localmente los eventos ocurridos.
 3. **Reconciliacion:** Al reconectarse el cable USB, el puente detecta el restablecimiento, actualiza el banner del sinoptico a conectado y solicita el estado real del inventario para reconciliar cualquier movimiento pendiente.
+
+
+---
+
+## 10. Canal de Mensajeria del Transportista
+
+### 10.1 Modulos
+
+| Modulo | Responsabilidad |
+|--------|-----------------|
+| `PortusFase2/mensajeria/messaging_service.py` | Logica de negocio: vinculacion, los 7 comandos, la solicitud de cita en 3 pasos y el texto de las 9 notificaciones. |
+| `PortusFase2/mensajeria/notifier.py` | Capa de salida: cola `queue.Queue(maxsize=500)`, hilo emisor, hilo de recordatorios y resolucion de `chat_id` por transportista. |
+| `PortusFase2/mensajeria/telegram_bot.py` | Puente fino con la API de Telegram mediante long polling (`getUpdates`) y `requests`, en un hilo daemon. |
+| `PortusFase2/frontend/src/pages/terminal/CitasPage.tsx` | Panel de vinculacion: alta de codigo y estado `Vinculado` / `Sin vincular`. |
+| `POST /api/transportista/generar-codigo` | Emite el codigo de 6 caracteres (permiso `generar_codigo_vinculacion`, solo TERMINAL). |
+| `POST /api/mensajeria/simulador` | Endpoint para probar los comandos sin Telegram. |
+| `GET /api/transportistas` | Devuelve transportistas con `chats_vinculados` para el estado del panel. |
+
+### 10.2 Flujo de entrega y degradacion
+
+```
+evento (Flask / telemetria MQTT) --> notifier.send() --> cola --> hilo emisor --> Telegram API
+                                                                        |
+                                                          sin token: registro [SIN TELEGRAM]
+                                                          sin vinculacion: registro [SIN CANAL]
+```
+
+- `notifier.send()` nunca bloquea ni lanza excepciones; si la cola esta llena descarta el aviso mas antiguo.
+- Los hilos `portus-notifier` y `portus-recordatorios` se arrancan exclusivamente desde `run_fase2.py`, para que importar `server/app.py` (como hacen los tests) no arranque hilos.
+- Sin `TELEGRAM_BOT_TOKEN` el sistema conserva el comportamiento previo: el aviso queda en el log y toda la plataforma sigue operando.
+- El bot responde siempre: los errores de procesamiento se traducen en un mensaje al usuario, nunca en silencio.
+
+### 10.3 Vinculacion y solicitud de cita
+
+1. TERMINAL genera el codigo en la pestana *Citas* (vigencia 60 minutos, un solo uso).
+2. El transportista envia `/vincular CODIGO`; el `chat_id` queda amarrado en `vinculaciones_transportista`.
+3. `/cita` (paso 1) lista contenedores con levante otorgado y sin cita vigente; `/cita CONTENEDOR` (paso 2) ofrece las proximas 4 franjas de 15 minutos con capacidad menor a 2 y no bloqueadas; la hora elegida (paso 3) confirma la cita y encola el aviso `cita_asignada`.
+4. El `chat_id` queda registrado en `pending` con un TTL de 300 segundos, de modo que la respuesta libre del transportista se interpreta como eleccion de franja solo dentro de ese flujo.
+
+### 10.4 Notificaciones automaticas y su punto de disparo
+
+| Aviso | Disparador |
+|-------|-----------|
+| Levante otorgado | `resolver-levante` con decision `OTORGAR` (`server/app.py`) |
+| Levante retenido | `resolver-levante` con decision `RETENER` |
+| Cita asignada | Confirmacion de `/cita` (`_cmd_cita`) |
+| Recordatorio de cita | Hilo `portus-recordatorios`, 1 hora antes, una sola vez (`citas.recordatorio_enviado`) |
+| Vehiculo retenido | RT01/RT02 (peso), RT04 (fuera de ventana), RT06 (manual) |
+| Retencion resuelta | `POST /api/retenciones/<id>/resolver` |
+| Cita cancelada / reprogramada | `POST /api/citas/<id>/cancelar` y `.../reprogramar` |
+| Turno cerrado | `telemetry._observe` con estado `Cerrado` |
+| Turno anulado | `telemetry._observe` con estado `Anulado`, `POST /api/turnos/<id>/anular` y resolucion `RECHAZAR` |
+
+### 10.5 RT01 y RT02 por discrepancia de peso
+
+`_evaluar_pesaje_tol()` se ejecuta en `on_mqtt_message` despues de `process_event`, dentro del mismo `telemetry_lock`:
+
+1. Lee el evento `PesajeLectura` (campo `peso` o el texto `Peso leido: ...`, tambien bajo `datos`).
+2. Identifica el turno por la placa del pesaje, por la estacion `PESAJE`/`SALIDA` o, en ultimo lugar, si hay un unico turno activo.
+3. Compara contra el peso declarado del manifiesto con su `tolerancia_pct` (5% por defecto).
+4. Si la diferencia la supera: lanza `AL09`, crea la retencion (`RT01` en ingreso, `RT02` en salida), publica `AgujaParqueo`, notifica al transportista con declarado, medido y diferencia, y retransmite por SSE.
+5. Proteccion: si el orden de magnitud entre medido y declarado supera 10 veces (bascula de maqueta frente a tonelaje de terminal) no genera retencion y registra la advertencia `fuera de escala comparable`, para no disparar RT01 en cada pesaje del proceso feliz.
+
+### 10.6 Verificacion
+
+- Suite `unittest` y `validate_scenarios.py` ejecutadas tras el cambio (las 5 fallas restantes de `test_api_gaps` son preexistentes y ajenas a este modulo, ver `MANUAL-DESPLIEGUE-Y-PRUEBAS.md` seccion 5).
+- Smoke funcional de 24 verificaciones: vinculacion, cita en 3 pasos, texto libre, entrega de avisos, recordatorios, cierre y anulacion de turno, RT01, no duplicado, proteccion de escala y RT02.

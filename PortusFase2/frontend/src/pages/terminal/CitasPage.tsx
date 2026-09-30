@@ -2,7 +2,7 @@
 // Acciones operativas: cancelar cita, reprogramar cita y bloquear/desbloquear franjas,
 // todas validadas en el servidor (capacidad maxima 2, franja bloqueada, solo PROGRAMADA).
 import { useMemo, useState } from 'react'
-import { CalendarClock, Ban, Repeat, Lock, LockOpen } from 'lucide-react'
+import { CalendarClock, Ban, Repeat, Lock, LockOpen, KeyRound } from 'lucide-react'
 import { useApi } from '../../hooks/useApi'
 import { useToast } from '../../components/Toast'
 import {
@@ -12,6 +12,8 @@ import {
   reprogramarCita,
   bloquearFranja,
   desbloquearFranja,
+  listTransportistas,
+  generarCodigoVinculacion,
 } from '../../api/endpoints'
 import type { Cita } from '../../types'
 import { Panel, MonoId, StatusBadge, EmptyState } from '../../components/ui'
@@ -32,10 +34,30 @@ export default function CitasPage() {
   const [fecha, setFecha] = useState(hoyISO())
   const citas = useApi(() => listCitas(fecha), [fecha])
   const bloqueadas = useApi(() => listFranjasBloqueadas(fecha), [fecha])
+  const transportistas = useApi(() => listTransportistas(), [])
+  const [transportistaSel, setTransportistaSel] = useState('')
+  const [codigoVinculacion, setCodigoVinculacion] = useState<string | null>(null)
+
+  const transportistaInfo = useMemo(
+    () => (transportistas.data || []).find((t) => t.username === transportistaSel) || null,
+    [transportistas.data, transportistaSel],
+  )
+
+  const accionGenerarCodigo = async () => {
+    if (!transportistaSel) return
+    try {
+      const r = await generarCodigoVinculacion(transportistaSel)
+      setCodigoVinculacion(r.codigo)
+      push('exito', `Codigo ${r.codigo} generado. Vigente por ${r.expira_en_minutos} minutos.`)
+    } catch (e) {
+      push('error', e instanceof Error ? e.message : 'No se pudo generar el codigo de vinculacion')
+    }
+  }
 
   const recargar = () => {
     citas.reload()
     bloqueadas.reload()
+    transportistas.reload()
   }
 
   const franjas = useMemo(() => {
@@ -210,12 +232,69 @@ export default function CitasPage() {
         )}
       </Panel>
 
-      <Panel title="Nota de operacion" bodyClassName="p-4">
-        <p className="text-xs text-inkdim leading-relaxed">
-          Las citas se solicitan desde el canal de mensajeria del transportista con el comando{' '}
-          <MonoId className="text-accent">/cita</MonoId>. Solo se admite cita para contenedores con levante otorgado
-          y sin otra cita vigente. La agenda se llena por capacidad de franja y no admite mas de dos citas cada
-          quince minutos. Una franja bloqueada no se ofrece al transportista.
+      <Panel
+        title="Vinculacion de transportista"
+        subtitle="Paso previo para que el transportista reciba avisos y solicite citas por mensajeria"
+        bodyClassName="p-4"
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="mb-1 block text-2xs text-inkfaint" htmlFor="sel-transportista">
+              Transportista
+            </label>
+            <select
+              id="sel-transportista"
+              className="input w-64"
+              value={transportistaSel}
+              onChange={(e) => {
+                setTransportistaSel(e.target.value)
+                setCodigoVinculacion(null)
+              }}
+            >
+              <option value="">Seleccione un transportista</option>
+              {(transportistas.data || []).map((t) => (
+                <option key={t.username} value={t.username}>
+                  {t.nombre_completo} ({t.username})
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            className="btn-primary disabled:opacity-50"
+            onClick={accionGenerarCodigo}
+            disabled={!transportistaSel}
+            title="Emite un codigo de vinculacion unico y vigente por 60 minutos"
+          >
+            <KeyRound size={12} /> Generar codigo
+          </button>
+          {codigoVinculacion && (
+            <div className="flex items-center gap-2 border border-accent/40 bg-accent-soft rounded px-3 py-1.5">
+              <span className="text-2xs text-inkfaint">Codigo vigente:</span>
+              <MonoId className="text-accent text-sm">{codigoVinculacion}</MonoId>
+            </div>
+          )}
+          {transportistaInfo && (
+            <StatusBadge color={transportistaInfo.chats_vinculados > 0 ? 'ok' : 'warn'}>
+              {transportistaInfo.chats_vinculados > 0
+                ? `Vinculado a ${transportistaInfo.chats_vinculados} chat(s)`
+                : 'Sin vincular'}
+            </StatusBadge>
+          )}
+        </div>
+
+        <p className="mt-3 text-2xs text-inkdim leading-relaxed">
+          El transportista envia <MonoId className="text-accent">/vincular CODIGO</MonoId> al bot de mensajeria para
+          amarrar su cuenta. Hasta entonces todos sus mensajes responden con la solicitud de vinculacion. Emita un
+          codigo nuevo cada vez que el transportista necesite amarrar otra cuenta o cuando el anterior venza.
+        </p>
+
+        <p className="mt-2 text-2xs text-inkfaint leading-relaxed">
+          Con la cuenta vinculada el transportista usa <MonoId className="text-accent">/cita</MonoId> (ofrece las
+          proximas franjas y se confirma con la hora elegida), <MonoId className="text-accent">/miscitas</MonoId>,{' '}
+          <MonoId className="text-accent">/misturnos</MonoId>, <MonoId className="text-accent">/estado</MonoId> y{' '}
+          <MonoId className="text-accent">/ayuda</MonoId>. Las citas se llenan por capacidad de franja: dos cada
+          quince minutos, y una franja bloqueada no se ofrece. El transportista solo recibe avisos de contenedores
+          con levante otorgado.
         </p>
       </Panel>
     </div>

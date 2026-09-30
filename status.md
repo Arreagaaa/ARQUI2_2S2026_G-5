@@ -1,8 +1,8 @@
 # PORTUS Fase 2 - Estado del Proyecto
 
-Fecha: 2026-09-23
-Version: 1.2.0
-Estado: Software funcional validado; pendiente integracion final con maqueta fisica
+Fecha: 2026-09-29
+Version: 1.3.0
+Estado: Canal de mensajeria del transportista operativo (Telegram + simulador); pendiente integracion final con maqueta fisica
 
 ---
 
@@ -163,7 +163,7 @@ PORTUS Fase 2 integra la maqueta fisica con una plataforma digital completa ejec
 | SPA React (nueva interfaz visual) | Completado | `pnpm dev` / `pnpm build` en `PortusFase2/frontend` |
 | Pestaña Citas y agenda en franjas de 15 min | Completado | Validacion de franjas y ventanas |
 | Pestaña Reportes con 8 metricas y exportacion CSV | Completado | Calculo de indicadores de corrida |
-| Canal de mensajeria de Transportista (7 comandos, 9 avisos) | Completado | `python PortusFase2/mensajeria/messaging_service.py` |
+| Canal de mensajeria de Transportista (7 comandos, 9 avisos) | Completado | Telegram real con `TELEGRAM_BOT_TOKEN`, sin token opera con `/api/mensajeria/simulador` |
 | Documento Tecnico y Especificacion de Fase 2 | Completado | `docs/Fase2/DOCUMENTO-TECNICO.md` |
 | Mapa de Pines, Hardware y Conexiones | Completado | `docs/Fase2/MAPA-PINES-Y-HARDWARE.md` |
 | Manual de Despliegue y Guia de 15 Escenarios | Completado | `docs/Fase2/MANUAL-DESPLIEGUE-Y-PRUEBAS.md` |
@@ -310,3 +310,52 @@ En `app.py` se quitaron `render_template`, `template_folder` y `static_folder` (
 ### 7.9 Estado real pendiente
 
 El software queda funcionalmente cerrado a nivel de servidor, API, SPA, mensajeria simulada, permisos, agenda, retenciones, reportes y pruebas automatizadas. Lo pendiente para declarar la Fase 2 completa al 100% es integracion fisica con la maqueta: enlace serial real con Arduino, Mosquitto en la Raspberry Pi, validacion de comandos contra sensores/actuadores reales, demostracion de perdida de comunicacion y conciliacion de inventario fisico.
+
+---
+
+## 8. Sesion 2026-09-29 - Canal de mensajeria del transportista completo
+
+### 8.1 Que se habilito
+
+El canal de mensajeria dejo de ser solo logica de negocio sin salida: hoy los avisos llegan al transportista por Telegram y la agenda se opera desde el telefono.
+
+| Entregable | Archivo |
+|------------|---------|
+| Cola de entrega asincrona con hilo emisor y hilo de recordatorios | `PortusFase2/mensajeria/notifier.py` |
+| Bot de Telegram con long polling (`getUpdates`), hilo daemon e idempotente | `PortusFase2/mensajeria/telegram_bot.py` |
+| `/cita` en 3 pasos con oferta de franjas, texto libre dentro del flujo y TTL de 300 s | `PortusFase2/mensajeria/messaging_service.py` |
+| 8 puntos de notificacion en la API (antes solo `logging.info`) | `PortusFase2/server/app.py` |
+| Aviso de turno cerrado y anulado en la telemetria | `PortusFase2/server/telemetry.py::_observe` |
+| RT01/RT02 con alarma `AL09`, comando `AgujaParqueo` y evidencia de peso | `PortusFase2/server/app.py::_evaluar_pesaje_tol` |
+| Panel *Vinculacion de transportista* en la pestana Citas | `frontend/src/pages/terminal/CitasPage.tsx` |
+| Estado `Vinculado`/`Sin vincular` por transportista | `GET /api/transportistas` |
+| Migracion aditiva `citas.recordatorio_enviado` | `server/database.py` |
+| Arranque de los 3 hilos solo desde el script maestro | `run_fase2.py` |
+
+### 8.2 Las 9 notificaciones automaticas: de log a transportista
+
+Levante otorgado, levante retenido, cita asignada, recordatorio de cita (1 hora antes, una sola vez), vehiculo retenido (RT01-RT06), retencion resuelta, cita cancelada/reprogramada, turno cerrado y turno anulado. Antes todas terminaban en `logging.info`; hoy se encolan con `notifier.send()` y se entregan al `chat_id` vinculado.
+
+### 8.3 Diseno degradado (decision aprobada)
+
+- Sin `TELEGRAM_BOT_TOKEN`: los avisos se registran con `[SIN TELEGRAM]` y el sistema opera igual que antes.
+- Sin cuenta vinculada: `[SIN CANAL]` y el transportista siempre recibe la solicitud de `/vincular`.
+- Sin Internet: la API de Telegram falla, el hilo reintenta y ninguna peticion HTTP de Flask ni el hilo MQTT esperan jamas.
+- Los hilos se arrancan solo desde `run_fase2.py`, para que los tests que importan `server/app.py` sigan siendo hermeticos.
+
+### 8.4 Proteccion del RT01 en la maqueta
+
+La bascula fisica pesa en escala de modelo (aprox. 1160 g) mientras que un manifiesto puede declarar tonelaje de terminal (22000 g). Si se compararan directamente, **todos** los pesajes caerian en RT01 y se romperia el proceso feliz. Por eso `_evaluar_pesaje_tol` no genera retencion cuando el orden de magnitud entre medido y declarado supera 10 veces: deja la advertencia `fuera de escala comparable` en el log y la retencion queda bajo criterio manual (`RT06`). Para demostrar E07 declare en el manifiesto el peso real de la maqueta.
+
+### 8.5 Verificacion
+
+- `py -3.13 -m unittest discover -s tests`: vuelve exactamente al baseline previo (5 fallas preexistentes en `test_api_gaps`, ajenas a esta sesion; verificado contra arbol limpio con `git stash`).
+- `py -3.13 tests\validate_scenarios.py`: **OK**, 12 pruebas (dos de ellas ajustadas al nuevo flujo de `/cita` en 3 pasos).
+- `npm run build` en `frontend`: **OK** (`tsc` + Vite).
+- Smoke funcional propio de 24 verificaciones: **OK** (vinculacion, cita en 3 pasos, texto libre, entrega de avisos, recordatorios, cierre/anulacion de turno, RT01, no duplicado, proteccion de escala, RT02).
+
+### 8.6 Como probarlo
+
+1. `cd PortusFase2 && py -3.13 run_fase2.py --mock`.
+2. Sin token: entrar como `operador1` en *Citas*, generar codigo, y enviar los comandos a `POST /api/mensajeria/simulador`.
+3. Con token: pegar `TELEGRAM_BOT_TOKEN` en `PortusFase2/.env`, reiniciar y operar el bot desde el telefono.
