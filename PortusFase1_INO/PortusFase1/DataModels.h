@@ -80,6 +80,7 @@ struct Turno {
   bool      pesajeFinalValido;
   int8_t    posicionPatioAsignada;   // para deposito/retiro
   bool      retenido;                // true si fue desviado al ramal
+  uint8_t   retencionFase3;          // 0, 7 (RT07) u 8 (RT08)
   bool      esperandoGrua;
   uint8_t   idsTrabajoGrua[3];       // trabajos de grua asociados (deposito/remociones/retiro)
   uint8_t   cantidadTrabajosGrua;

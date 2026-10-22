@@ -86,6 +86,21 @@ def send_message(chat_id: str, texto: str) -> bool:
     return enviado
 
 
+def send_photo(chat_id: str, path: str, caption: str) -> bool:
+    """Envia una fotografia local real; la llamada se hace desde el emisor asincrono."""
+    if not disponible() or not chat_id or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as photo:
+            response = requests.post(API_BASE.format(token=token(), method="sendPhoto"),
+                                     data={"chat_id": chat_id, "caption": caption[:1024]},
+                                     files={"photo": photo}, timeout=HTTP_TIMEOUT_SEG)
+        return bool(response.json().get("ok"))
+    except Exception as exc:
+        logging.warning("No se pudo enviar foto a Telegram: %s", exc)
+        return False
+
+
 def start(msg_service) -> bool:
     """
     Arranca el bucle de polling una sola vez. Recibe la instancia de

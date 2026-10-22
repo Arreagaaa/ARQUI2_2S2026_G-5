@@ -16,6 +16,9 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+PortusFase3/fotos/
+PortusFase3/station_settings.json
+*.pt
 .env
 .env.local
 .env.*.local

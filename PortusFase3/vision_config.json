@@ -1,0 +1,14 @@
+{
+  "camera_device": "/dev/video0",
+  "camera_width": 640,
+  "camera_height": 480,
+  "mqtt_host": "localhost",
+  "mqtt_port": 1883,
+  "coco_model": "yolov8n.pt",
+  "plate_roi": [0.5, 0.35, 0.4, 0.3],
+  "queue_roi": [0.02, 0.1, 0.45, 0.8],
+  "photo_dir": "PortusFase3/fotos",
+  "attempts": 3,
+  "confidence": 60,
+  "count_seconds": 5
+}

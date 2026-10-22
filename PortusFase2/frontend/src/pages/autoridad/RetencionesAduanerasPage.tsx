@@ -26,7 +26,7 @@ export default function RetencionesAduanerasPage() {
   )
 
   // El endpoint ya restringe a RT03/RT05 para AUTORIDAD; el filtro doble no hace daño.
-  const lista = useMemo(() => (retenciones.data || []).filter((r) => r.causa === 'RT03' || r.causa === 'RT05'), [
+  const lista = useMemo(() => (retenciones.data || []).filter((r) => r.causa === 'RT03' || r.causa === 'RT05' || r.causa === 'RT08'), [
     retenciones.data,
   ])
   const abiertas = lista.filter((r) => r.estado === 'ABIERTA')

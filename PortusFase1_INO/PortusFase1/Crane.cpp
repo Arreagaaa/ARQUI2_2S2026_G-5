@@ -400,6 +400,9 @@ enum EstadoGrua {
 };
 
 static EstadoGrua estado = G_INACTIVA;
+static bool climaSuspendida = false;
+void crane_setClimateSuspended(bool suspended) { climaSuspendida = suspended; }
+bool crane_isClimateSuspended() { return climaSuspendida; }
 static TrabajoGrua *trabajoActual = nullptr;
 static uint32_t telemetriaInicioTrabajoMs = 0;
 static void imprimirEventoTrabajo(const char *evento) {
@@ -507,6 +510,9 @@ void crane_update() {
   switch (estado) {
 
     case G_INACTIVA: {
+      // La orden de lluvia deja terminar el trabajo actual. No inicia otro
+      // trabajo mientras este activa; la cola existente se conserva.
+      if (climaSuspendida) return;
       // AGREGADO: al volver a G_INACTIVA (despues de un error/rearme),
       // fuerza el reset de todos los "yaIniciado" de los estados de la
       // grua para que el proximo trabajo arranque limpio.

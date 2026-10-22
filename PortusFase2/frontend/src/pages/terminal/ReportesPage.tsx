@@ -125,6 +125,7 @@ export default function ReportesPage() {
             <Metrica etiqueta="Tiempo promedio de camion en la terminal" valor={m.tiempo_promedio_camion_min} unidad={`min (${m.tiempo_promedio_camion_seg}s)`} />
             <Metrica etiqueta="Tiempo promedio de retencion" valor={m.tiempo_promedio_retencion_min} unidad={`min (${m.tiempo_promedio_retencion_seg}s)`} />
             <Metrica etiqueta="Longitud maxima de la fila de espera" valor={m.longitud_maxima_fila_espera} unidad="vehiculos" />
+            <Metrica etiqueta="Disponibilidad de grua (lluvia)" valor={m.disponibilidad_grua_pct ?? 'Sin medicion'} unidad="%" />
             <Metrica etiqueta="Porcentaje de citas cumplidas en ventana" valor={m.porcentaje_citas_cumplidas_ventana} unidad="%" />
             <Metrica
               etiqueta="Retenciones por causa y resolucion"

@@ -82,6 +82,9 @@
 #define PIN_SEM_TRANSF_R  43
 #define PIN_SEM_TRANSF_A  44
 #define PIN_SEM_TRANSF_V  45
+// Fase 3: libres en Mega 2560; confirmar con multimetro antes de cablear.
+#define PIN_F3_ILUMINACION 46
+#define PIN_F3_BALIZA 47
 
 // Semaforo de salida eliminado: salida unificada con garita (usa PIN_SEM_GARITA_*)
 

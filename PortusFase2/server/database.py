@@ -271,6 +271,39 @@ def init_database():
     c.execute("CREATE TABLE IF NOT EXISTS schema_metadata (key TEXT PRIMARY KEY, value TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS controller_events (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, tipo TEXT NOT NULL, datos TEXT NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS controller_state (id INTEGER PRIMARY KEY CHECK(id=1), state TEXT NOT NULL)")
+    # Fase 3: migraciones aditivas; el esquema y los registros de Fase 2 se conservan.
+    c.execute("CREATE TABLE IF NOT EXISTS fase3_parametros (nombre TEXT PRIMARY KEY, valor REAL NOT NULL)")
+    c.execute("CREATE TABLE IF NOT EXISTS fase3_estado (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
+    c.execute("""CREATE TABLE IF NOT EXISTS fase3_lecturas (
+        id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, temperatura REAL, humedad REAL,
+        lluvia INTEGER NOT NULL, luz REAL NOT NULL, origen TEXT NOT NULL)""")
+    c.execute("CREATE TABLE IF NOT EXISTS fase3_cola (id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, cantidad INTEGER NOT NULL)")
+    c.execute("CREATE TABLE IF NOT EXISTS fase3_suspensiones (id INTEGER PRIMARY KEY, inicio TEXT NOT NULL, fin TEXT)")
+    c.execute("""CREATE TABLE IF NOT EXISTS fase3_accesos (
+        id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, rfid_uid TEXT, placa_leida TEXT,
+        confianza REAL, placa_esperada TEXT, resultado TEXT NOT NULL, foto TEXT,
+        turno_id INTEGER, usuario_decision TEXT, motivo_decision TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fase3_fotos (
+        id INTEGER PRIMARY KEY, acceso_id INTEGER NOT NULL, intento INTEGER NOT NULL,
+        ruta TEXT NOT NULL, placa_leida TEXT, confianza REAL,
+        FOREIGN KEY(acceso_id) REFERENCES fase3_accesos(id))""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fase3_placas_restringidas (
+        placa TEXT PRIMARY KEY, motivo TEXT NOT NULL, usuario_alta TEXT NOT NULL,
+        alta_at TEXT NOT NULL, usuario_baja TEXT, baja_at TEXT, motivo_baja TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS fase3_auditoria (
+        id INTEGER PRIMARY KEY, timestamp TEXT NOT NULL, usuario TEXT NOT NULL,
+        accion TEXT NOT NULL, datos TEXT NOT NULL)""")
+    camion_cols = {r[1] for r in c.execute("PRAGMA table_info(catalogo_camiones)")}
+    if "activo" not in camion_cols:
+        c.execute("ALTER TABLE catalogo_camiones ADD COLUMN activo INTEGER NOT NULL DEFAULT 1")
+    for nombre, valor in {
+        "SegundosLecturaEstacion": 5, "SegundosLatidoEstacion": 10,
+        "MinutosSinLluviaReanudar": 2, "UmbralLuzEncendido": 30,
+        "UmbralLuzApagado": 45, "ConfianzaMinimaOCR": 60,
+        "IntentosOCR": 3, "SegundosEsperaVerificacion": 10,
+        "SegundosConteoCola": 5, "UmbralCola": 3,
+    }.items():
+        c.execute("INSERT OR IGNORE INTO fase3_parametros VALUES (?,?)", (nombre, valor))
     columns = {r[1] for r in c.execute("PRAGMA table_info(turnos)")}
     for name, definition in (("hardware_key", "TEXT"), ("naviera_id", "TEXT"), ("retenido_fisico", "INTEGER DEFAULT 0")):
         if name not in columns:
@@ -334,8 +367,7 @@ def seed_initial_data(conn):
         INSERT OR IGNORE INTO catalogo_camiones (placa, transportista_id, tara_g, rfid_uid)
         VALUES (?, ?, ?, ?)
         """, (placa, trans, tara, uid))
-        # Actualizar UID si ya existia con el valor anterior
-        c.execute("UPDATE catalogo_camiones SET rfid_uid = ? WHERE placa = ?", (uid, placa))
+        # Fase 3 permite editar el UID. No sobrescribirlo en reinicios.
 
     # 4. Inicializar posiciones de patio (2 posiciones, 2 niveles = 4 celdas)
     for pos in [0, 1]:

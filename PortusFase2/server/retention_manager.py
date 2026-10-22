@@ -16,7 +16,9 @@ CAUSAS_ROLES = {
     "RT03": "AUTORIDAD",  # Canal rojo
     "RT04": "TERMINAL",   # Fuera de ventana
     "RT05": "AUTORIDAD",  # Retencion documental
-    "RT06": "TERMINAL"    # Manual operativa
+    "RT06": "TERMINAL",   # Manual operativa
+    "RT07": "TERMINAL",   # RFID y placa no coinciden
+    "RT08": "AUTORIDAD"   # Placa restringida
 }
 
 
@@ -162,6 +164,9 @@ def resolve_retention(
     if resolucion == "CORREGIR" and rol_usuario != "TERMINAL":
         conn.close()
         return {"success": False, "error": "La resolucion 'Corregir' es potestad exclusiva del rol TERMINAL"}
+    if resolucion == "CORREGIR" and causa in ("RT07", "RT08"):
+        conn.close()
+        return {"success": False, "error": f"La causa {causa} solo permite Aclarar o Rechazar"}
 
     # 2. Rechazar exige motivo obligatorio
     if resolucion == "RECHAZAR" and (not motivo_rechazo or not motivo_rechazo.strip()):

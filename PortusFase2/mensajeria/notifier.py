@@ -84,6 +84,16 @@ def send(transportista_id: Optional[str], texto: Optional[str]) -> None:
             logging.warning("Cola de avisos llena; se descarta el aviso para %s", transportista_id)
 
 
+def send_photo(transportista_id: Optional[str], path: str, caption: str) -> None:
+    if not transportista_id or not path:
+        return
+    try:
+        _cola.put_nowait({"transportista_id": str(transportista_id), "texto": caption,
+                         "foto": path, "ts": time.time()})
+    except queue.Full:
+        logging.warning("Cola de avisos llena; no se pudo encolar fotografia")
+
+
 def pending_count() -> int:
     """Avisos esperando entrega (util para pruebas y diagnostico)."""
     return _cola.qsize()
@@ -139,13 +149,15 @@ def _entregar(item: Dict[str, Any]) -> None:
 
     # Import perezoso: si el canal no esta disponible, el sistema sigue operando.
     try:
-        from .telegram_bot import send_message
+        from .telegram_bot import send_message, send_photo as telegram_send_photo
     except Exception:
         logging.exception("No se pudo cargar el canal de Telegram")
         return
 
     for chat_id in chats:
-        if not send_message(chat_id, texto):
+        success = (telegram_send_photo(chat_id, item["foto"], texto) if item.get("foto")
+                   else send_message(chat_id, texto))
+        if not success:
             logging.warning("No se pudo entregar el aviso a chat %s (transportista %s)", chat_id, transportista_id)
 
 

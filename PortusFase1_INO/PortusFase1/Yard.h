@@ -39,6 +39,7 @@ bool yard_esAccesible(int8_t posicion);
 uint8_t yard_getNiveles(int8_t posicion);
 
 void yard_reservarPosicion(int8_t posicion);
+void yard_cancelarReserva(int8_t posicion);
 void yard_ocuparPosicion(int8_t posicion, uint8_t idContenedor);
 void yard_liberarPosicion(int8_t posicion);
 void yard_marcarBloqueada(int8_t posicion);

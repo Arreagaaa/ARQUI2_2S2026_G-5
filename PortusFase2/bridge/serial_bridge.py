@@ -53,6 +53,8 @@ class SerialMQTTBridge:
         self.lock = threading.Lock()
         self.legacy = LegacyTelemetry()
         self.protocol = "mock" if use_mock else "fase1"
+        self.fase3_active = False
+        self.last_fase3_server = 0.0
 
     def start(self):
         self.running = True
@@ -92,6 +94,7 @@ class SerialMQTTBridge:
         if rc == 0:
             logging.info("Suscrito a portus/cmd/solicitud")
             client.subscribe("portus/cmd/solicitud")
+            client.subscribe("portus/fase3/latido")
         else:
             logging.warning("Fallo conexion MQTT rc=%d", rc)
 
@@ -99,6 +102,9 @@ class SerialMQTTBridge:
         """
         Recibe comandos remotos emitidos desde la plataforma web y los retransmite al controlador.
         """
+        if msg.topic == "portus/fase3/latido":
+            self.last_fase3_server = time.monotonic()
+            return
         if msg.topic == "portus/cmd/solicitud":
             try:
                 payload_str = msg.payload.decode("utf-8")
@@ -114,6 +120,43 @@ class SerialMQTTBridge:
 
     def send_command_to_controller(self, cmd: str, payload_str: str = ""):
         if not self.use_mock:
+            # Extension optativa de Fase 3: el sketch Fase 1 sin actualizar
+            # ignora estos comandos. Nunca se habilitan comandos antiguos de
+            # movimiento remoto que antes estaban bloqueados.
+            allowed = {"IluminacionEncender": "ILUMINACIONENCENDER",
+                       "IluminacionApagar": "ILUMINACIONAPAGAR",
+                       "GruaSuspender": "GRUASUSPENDER",
+                       "GruaReanudar": "GRUAREANUDAR",
+                       "CapturaInicio": "CAPTURAINICIO", "CapturaFin": "CAPTURAFIN",
+                       "GaritaModo": "GARITAMODO", "GaritaResultado": "GARITARESULTADO",
+                       "GaritaEspera": "GARITAESPERA"}
+            if cmd in allowed and self.serial_conn and self.serial_conn.is_open:
+                motivo = " CLIMA" if cmd in ("GruaSuspender", "GruaReanudar") and "motivo=Clima" in payload_str else ""
+                if cmd not in ("GruaSuspender", "GruaReanudar") or motivo:
+                    if cmd == "GaritaModo":
+                        motivo = " ON" if "activo=True" in payload_str else " OFF"
+                    elif cmd == "GaritaResultado":
+                        if "resultado=RETENER07" in payload_str:
+                            motivo = " RETENER07"
+                        elif "resultado=RETENER08" in payload_str:
+                            motivo = " RETENER08"
+                        else:
+                            motivo = " AUTORIZAR" if "resultado=AUTORIZAR" in payload_str else " RECHAZAR"
+                        for item in payload_str.split(";"):
+                            if item.startswith("placa="):
+                                plate = "".join(ch for ch in item[6:].upper() if ch.isalnum())[:12]
+                                if plate:
+                                    motivo += " " + plate
+                    elif cmd == "GaritaEspera":
+                        try:
+                            seconds = int(payload_str.split("segundos=", 1)[1].split(";", 1)[0])
+                        except (IndexError, ValueError):
+                            seconds = 10
+                        motivo = f" {seconds}"
+                    with self.lock:
+                        self.serial_conn.write(("F3 " + allowed[cmd] + motivo + "\n").encode("ascii"))
+                    self.fase3_active = True
+                    return
             self.publish_event("portus/cmd/respuesta", "RechazoComando", {
                 "resultado": "NAK", "comando": cmd,
                 "error": "El firmware Fase1 instalado solo permite supervision; opere el control local."})
@@ -148,6 +191,8 @@ class SerialMQTTBridge:
                 try:
                     with self.lock:
                         self.serial_conn.write(b"ESTADO\nPATIO\nGRUA\n")
+                        if self.fase3_active and time.monotonic() - self.last_fase3_server < 10:
+                            self.serial_conn.write(b"F3 PING\n")
                 except Exception as exc:
                     logging.warning("Consulta serial: %s", exc)
 
@@ -194,7 +239,7 @@ class SerialMQTTBridge:
             kind, values = legacy_event
             if kind not in ("SnapshotInicio", "SnapshotParte", "SnapshotIncompleto"):
                 topic = next((name for word, name in (
-                    ("Pesaje", "pesaje"), ("Salida", "salida"),
+                    ("Garita", "garita"), ("Pesaje", "pesaje"), ("Salida", "salida"),
                     ("Grua", "grua"), ("Patio", "patio"),
                     ("Paro", "alarma")) if word in kind), "estado")
                 self.publish_event("portus/evt/" + topic, kind, values)

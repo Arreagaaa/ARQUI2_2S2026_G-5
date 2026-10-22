@@ -83,6 +83,7 @@ class TransportistaMessagingService:
                 "/miscitas - Lista sus citas vigentes y su estado\n"
                 "/estado CONTENEDOR - Consulta estado y ubicacion de su carga\n"
                 "/misturnos - Consulta turnos y operaciones en curso\n"
+                "/clima - Condiciones de la terminal y estado de la grua\n"
                 "/ayuda - Repite la lista de comandos disponibles"
             )
 
@@ -95,6 +96,7 @@ class TransportistaMessagingService:
                 "/miscitas - Ver citas asignadas y ventanas de atencion\n"
                 "/estado CONTENEDOR - Ver ubicacion y autorizacion de un contenedor\n"
                 "/misturnos - Ver estado de sus vehiculos en la terminal\n"
+                "/clima - Consultar clima y grua\n"
                 "/ayuda - Muestra esta ayuda"
             )
 
@@ -129,6 +131,18 @@ class TransportistaMessagingService:
         # Comandos autenticados
         if cmd == "/cita":
             return self._cmd_cita(transportista_id, args, chat_id)
+        elif cmd == "/clima":
+            from ..server.fase3 import state_get
+            info = state_get("clima_publico", {})
+            if not info or not info.get("estacion_operativa"):
+                estado = "suspendida por lluvia" if info.get("grua_suspendida_clima") else "operando"
+                return f"Informacion meteorologica no disponible. Grua: {estado}."
+            reading = info.get("ultima_lectura") or {}
+            rain = "lluvia" if reading.get("lluvia") else "sin lluvia"
+            crane = (f"suspendida por lluvia desde {info['grua_suspendida_clima']}"
+                     if info.get("grua_suspendida_clima") else "operando")
+            return (f"Temperatura: {reading.get('temperatura')} °C. Humedad: {reading.get('humedad')}%. "
+                    f"Estado: {rain}. Grua: {crane}. Ultima lectura: {reading.get('timestamp')}.")
         elif cmd == "/miscitas":
             return self._cmd_miscitas(transportista_id)
         elif cmd == "/estado":
