@@ -24,6 +24,13 @@ CATALOGO_ALARMAS = {
     "AL12": ("Media", "Retencion que supera treinta minutos"),
     "AL13": ("Baja", "Permanencia de contenedor superior a dos horas"),
     "AL14": ("Baja", "Comando remoto rechazado por el controlador"),
+    "AL16": ("Alta", "Estacion meteorologica sin comunicacion"),
+    "AL17": ("Media", "Lluvia detectada, grua suspendida"),
+    "AL18": ("Alta", "Camara o modelo de vision fuera de servicio"),
+    "AL19": ("Media", "Congestion en la zona de espera"),
+    "AL20": ("Alta", "Placa leida no corresponde a la etiqueta"),
+    "AL21": ("Critica", "Placa restringida detectada en la garita"),
+    "AL22": ("Media", "Verificacion manual de ingreso requerida"),
 }
 
 

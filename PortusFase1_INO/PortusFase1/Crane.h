@@ -28,6 +28,8 @@ bool crane_isIdle();
 bool crane_isReferenced();
 void crane_forceReReference();
 void crane_emergencyHalt();
+void crane_setClimateSuspended(bool suspended);
+bool crane_isClimateSuspended();
 
 // AGREGADO: vacia la cola de trabajos y deja la maquina de estados de la
 // grua en G_INACTIVA, para el comando REINICIAR de consola (repetir

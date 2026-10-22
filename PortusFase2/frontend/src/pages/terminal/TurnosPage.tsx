@@ -5,6 +5,13 @@ import { useApi } from '../../hooks/useApi'
 import { useToast } from '../../components/Toast'
 import { anularTurno, getTimeline, retenerTurno, listTurnos } from '../../api/endpoints'
 import type { EventoTimeline, Turno } from '../../types'
+
+function fotoAcceso(evento: EventoTimeline): number | null {
+  try {
+    const value = JSON.parse(evento.valores_asociados || '{}') as { acceso_id?: number; foto?: string }
+    return typeof value.acceso_id === 'number' && value.foto ? value.acceso_id : null
+  } catch { return null }
+}
 import { DataTable, type Columna } from '../../components/DataTable'
 import { Modal, Panel, MonoId, StatusBadge, FormField, Skeleton } from '../../components/ui'
 import {
@@ -99,6 +106,7 @@ function DetalleTurno({ turno, onClose }: { turno: Turno | null; onClose: () => 
                         {ev.valores_asociados}
                       </MonoId>
                     )}
+                    {fotoAcceso(ev) && <a href={`/api/fase3/accesos/${fotoAcceso(ev)}/foto`} target="_blank" rel="noreferrer" className="text-accent">Fotografia de ingreso</a>}
                   </li>
                 ))}
               </ol>

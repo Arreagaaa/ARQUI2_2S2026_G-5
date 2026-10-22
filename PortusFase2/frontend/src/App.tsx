@@ -20,6 +20,9 @@ import SeguimientoPage from './pages/agente/SeguimientoPage'
 import LevantePage from './pages/autoridad/LevantePage'
 import RetencionesAduanerasPage from './pages/autoridad/RetencionesAduanerasPage'
 import ConsultaCargaPage from './pages/autoridad/ConsultaCargaPage'
+import AccesosPage from './pages/terminal/AccesosPage'
+import PlacasRestringidasPage from './pages/autoridad/PlacasRestringidasPage'
+import ParametrosFase3Page from './pages/terminal/ParametrosFase3Page'
 
 const RUTA_POR_ROL: Record<string, string> = {
   TERMINAL: '/terminal/operacion',
@@ -72,6 +75,8 @@ export default function App() {
       >
         <Route index element={<Navigate to="operacion" replace />} />
         <Route path="operacion" element={<OperacionPage />} />
+        <Route path="accesos" element={<AccesosPage />} />
+        <Route path="parametros-fase3" element={<ParametrosFase3Page />} />
         <Route path="turnos" element={<TurnosPage />} />
         <Route path="retenciones" element={<RetencionesPage />} />
         <Route path="patio" element={<PatioPage />} />
@@ -118,6 +123,7 @@ export default function App() {
         <Route index element={<Navigate to="levante" replace />} />
         <Route path="levante" element={<LevantePage />} />
         <Route path="retenciones" element={<RetencionesAduanerasPage />} />
+        <Route path="placas" element={<PlacasRestringidasPage />} />
         <Route path="consulta" element={<ConsultaCargaPage />} />
       </Route>
 

@@ -19,6 +19,7 @@ import {
   Ship,
   Truck,
   Warehouse,
+  Wrench,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -37,6 +38,8 @@ interface TabDef {
 const TABS: Record<Rol, TabDef[]> = {
   TERMINAL: [
     { ruta: 'operacion', etiqueta: 'Operacion', icono: Activity },
+    { ruta: 'accesos', etiqueta: 'Accesos', icono: Truck },
+    { ruta: 'parametros-fase3', etiqueta: 'Parametros F3', icono: Wrench },
     { ruta: 'turnos', etiqueta: 'Turnos', icono: ClipboardList },
     { ruta: 'retenciones', etiqueta: 'Retenciones', icono: ShieldAlert },
     { ruta: 'patio', etiqueta: 'Patio', icono: Warehouse },
@@ -54,6 +57,7 @@ const TABS: Record<Rol, TabDef[]> = {
     { ruta: 'seguimiento', etiqueta: 'Seguimiento', icono: MapPin },
   ],
   AUTORIDAD: [
+    { ruta: 'placas', etiqueta: 'Placas restringidas', icono: ShieldAlert },
     { ruta: 'levante', etiqueta: 'Solicitudes de levante', icono: FileCheck2 },
     { ruta: 'retenciones', etiqueta: 'Retenciones aduaneras', icono: ShieldAlert },
     { ruta: 'consulta', etiqueta: 'Consulta de carga', icono: Search },

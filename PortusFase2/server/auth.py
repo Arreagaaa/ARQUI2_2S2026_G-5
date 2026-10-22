@@ -25,7 +25,9 @@ PERMISOS_MATRIZ = {
     "corregir_peso_manifiesto": ["TERMINAL"],
     "consultar_ubicacion_contenedor": ["TERMINAL", "NAVIERA", "AGENTE", "AUTORIDAD", "TRANSPORTISTA"],
     "generar_reporte_corrida": ["TERMINAL"],
-    "generar_codigo_vinculacion": ["TERMINAL"]
+    "generar_codigo_vinculacion": ["TERMINAL"],
+    "gestionar_fase3": ["TERMINAL"],
+    "gestionar_placas": ["AUTORIDAD"],
 }
 
 

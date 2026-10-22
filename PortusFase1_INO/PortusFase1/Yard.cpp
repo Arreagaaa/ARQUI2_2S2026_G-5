@@ -171,6 +171,12 @@ void yard_reservarPosicion(int8_t posicion) {
   if (yard_esAccesible(posicion)) patio[posicion].estado = POS_RESERVADA;
 }
 
+void yard_cancelarReserva(int8_t posicion) {
+  if (posicion < 0 || posicion >= YARD_POS_COUNT) return;
+  if (patio[posicion].estado == POS_RESERVADA)
+    patio[posicion].estado = patio[posicion].nivelesOcupados ? POS_OCUPADA : POS_LIBRE;
+}
+
 void yard_ocuparPosicion(int8_t posicion, uint8_t idContenedor) {
   if (posicion < 0 || posicion >= YARD_POS_COUNT) return;
   uint8_t nivel = patio[posicion].nivelesOcupados;

@@ -97,6 +97,16 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
         if (not low or moment >= low) and (not high or moment <= high):
             observed.append(int(json.loads(row['datos']).get('espera', 0)))
     max_espera = max(observed, default=0)
+    vision_samples = conn.execute("SELECT timestamp,cantidad FROM fase3_cola").fetchall()
+    vision_counts = []
+    for row in vision_samples:
+        moment = datetime.fromisoformat(row['timestamp'])
+        low = lower.replace(tzinfo=moment.tzinfo) if lower and lower.tzinfo is None else lower
+        high = upper.replace(tzinfo=moment.tzinfo) if upper and upper.tzinfo is None else upper
+        if (not low or moment >= low) and (not high or moment <= high):
+            vision_counts.append(row['cantidad'])
+    if vision_counts:
+        max_espera = max(vision_counts)
     avg_cycle = conn.execute(f"SELECT AVG(tiempo_ciclo_seg) FROM grua_ciclos {filtro_grua}", params_grua).fetchone()[0] or 0
     physical_cycles = conn.execute("SELECT COUNT(*) FROM controller_events WHERE tipo='GruaTrabajo'").fetchone()[0]
     coarse_crane = conn.execute("SELECT COUNT(*) FROM controller_events WHERE tipo='GruaEstado'").fetchone()[0]
@@ -118,6 +128,23 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
     """, params_ret).fetchall()
 
     retenciones_desglose = [dict(r) for r in filas_ret]
+    suspensions = conn.execute("SELECT inicio,fin FROM fase3_suspensiones").fetchall()
+    range_start = datetime.fromisoformat(inicio_iso) if inicio_iso else None
+    range_end = datetime.fromisoformat(fin_iso) if fin_iso else datetime.now(timezone.utc)
+    if range_start and range_start.tzinfo is None:
+        range_start = range_start.replace(tzinfo=timezone.utc)
+    if range_end.tzinfo is None:
+        range_end = range_end.replace(tzinfo=timezone.utc)
+    if range_start is None and suspensions:
+        range_start = datetime.fromisoformat(suspensions[0]['inicio'])
+    climate_down = 0.0
+    if range_start:
+        for row in suspensions:
+            begin = datetime.fromisoformat(row['inicio'])
+            end = datetime.fromisoformat(row['fin']) if row['fin'] else range_end
+            climate_down += max(0.0, (min(end, range_end) - max(begin, range_start)).total_seconds())
+    range_seconds = max(0.0, (range_end - range_start).total_seconds()) if range_start else 0.0
+    availability = round(100 * max(0.0, 1 - climate_down / range_seconds), 1) if range_seconds else None
     conn.close()
 
     return {
@@ -125,12 +152,14 @@ def calculate_metrics(inicio_iso: Optional[str] = None, fin_iso: Optional[str] =
         "ciclos_grua_por_operacion": None if cycles_unknown else ciclos_por_operacion,
         "distancia_total_grua_m": None if physical_cycles or cycles_unknown else distancia_m,
         "tiempo_promedio_ciclo_seg": round(avg_cycle, 2),
-        "observaciones": "La distancia requiere calibracion fisica. La fila corresponde al sensor de espera (presencia 0/1).",
+        "observaciones": "La distancia requiere calibracion fisica. La fila corresponde a vision si hay muestras; en otro caso al sensor de espera.",
         "tiempo_promedio_camion_seg": round(tiempo_camion_prom_seg, 1),
         "tiempo_promedio_camion_min": round(tiempo_camion_prom_seg / 60.0, 1),
         "tiempo_promedio_retencion_seg": round(tiempo_ret_prom_seg, 1),
         "tiempo_promedio_retencion_min": round(tiempo_ret_prom_seg / 60.0, 1),
         "longitud_maxima_fila_espera": max_espera,
+        "tiempo_no_operativo_clima_seg": round(climate_down, 1),
+        "disponibilidad_grua_pct": availability,
         "porcentaje_citas_cumplidas_ventana": pct_citas,
         "retenciones_desglose": retenciones_desglose,
         "resumen_conteos": {
@@ -158,6 +187,7 @@ def export_report_csv(etiqueta: str, metricas: Dict[str, Any]) -> str:
     writer.writerow(["Tiempo promedio de camion en la terminal", metricas["tiempo_promedio_camion_seg"], "segundos"])
     writer.writerow(["Tiempo promedio de retencion", metricas["tiempo_promedio_retencion_seg"], "segundos"])
     writer.writerow(["Longitud maxima de la fila de espera", metricas["longitud_maxima_fila_espera"], "vehiculos"])
+    writer.writerow(["Disponibilidad de grua durante lluvia", metricas.get("disponibilidad_grua_pct") if metricas.get("disponibilidad_grua_pct") is not None else "SIN MEDICION", "porcentaje"])
     writer.writerow(["Porcentaje de citas cumplidas en ventana", f"{metricas['porcentaje_citas_cumplidas_ventana']}%", "porcentaje"])
     writer.writerow([])
     writer.writerow(["Desglose de Retenciones por Causa y Resolucion"])

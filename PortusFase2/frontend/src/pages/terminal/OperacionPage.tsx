@@ -19,6 +19,7 @@ import {
   Radio,
 } from 'lucide-react'
 import { useApi } from '../../hooks/useApi'
+import { api } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { useAuth } from '../../hooks/useAuth'
 import {
@@ -171,6 +172,39 @@ export default function OperacionPage() {
 
   return (
     <div className="space-y-4">
+      <Panel title="Fase 3 · Clima, iluminacion y vision" bodyClassName="p-3 grid gap-3 md:grid-cols-3 text-xs">
+        <div>
+          <div className="font-semibold text-ink">Estacion: {estado.fase3?.estacion_operativa ? 'Operativa' : 'Sin lectura'}</div>
+          <div>Temperatura: {estado.fase3?.ultima_lectura?.temperatura ?? '—'} °C</div>
+          <div>Humedad: {estado.fase3?.ultima_lectura?.humedad ?? '—'} %</div>
+          <div>Lluvia: {estado.fase3?.lloviendo == null ? 'Desconocida' : estado.fase3.lloviendo ? 'Si' : 'No'}</div>
+          <div>Luz: {estado.fase3?.ultima_lectura?.luz ?? '—'} / 100</div>
+          <div>Ultima lectura: {estado.fase3?.ultima_lectura?.timestamp ?? '—'}</div>
+        </div>
+        <div>
+          <div className="font-semibold text-ink">Iluminacion: {estado.fase3?.iluminacion_encendida == null ? 'Sin confirmar' : estado.fase3.iluminacion_encendida ? 'Encendida' : 'Apagada'}</div>
+          <label className="block mt-2">Modo
+            <select className="input mt-1" value={estado.fase3?.modo_iluminacion ?? 'Automatico'}
+              onChange={async (event) => {
+                try { await api.post('/api/fase3/iluminacion', { modo: event.target.value }) }
+                catch (error) { window.alert(String(error)) }
+              }}>
+              <option>Automatico</option><option>Encendido forzado</option><option>Apagado forzado</option>
+            </select>
+          </label>
+          <div>Grua: {estado.fase3?.grua_suspendida_clima ? `Suspendida por lluvia desde ${estado.fase3.grua_suspendida_clima}` : 'Sin suspension climatica'}</div>
+        </div>
+        <div>
+          <div className="font-semibold text-ink">Camara: {estado.fase3?.camara_operativa == null ? 'Sin conectar' : estado.fase3.camara_operativa ? 'Operativa' : 'Fuera de servicio'}</div>
+          <div>Fila: {estado.fase3?.cola ?? 'No disponible'} vehiculos</div>
+          <div>Ultima placa: {estado.fase3?.ultimo_acceso?.placa_leida ?? '—'}</div>
+          <div>Resultado: {estado.fase3?.ultimo_acceso?.resultado ?? '—'}</div>
+          <button className="btn-ghost mt-2" onClick={async () => {
+            try { await api.post('/api/fase3/garita/modo', { activo: !estado.fase3?.doble_factor_activo }) }
+            catch (error) { window.alert(String(error)) }
+          }}>Dos factores: {estado.fase3?.doble_factor_activo ? 'Activo' : 'Desactivado'}</button>
+        </div>
+      </Panel>
       <div className="text-xs text-inkdim">Fuente: {estado.fuente || 'SIN DATOS'} · Vehiculos dentro: {estado.vehiculos_dentro ?? 'Sin confirmar'} · {estado.sincronizado ? 'Estado confirmado por controlador' : 'Esperando confirmacion'}</div>
       {estado.paro_emergencia && <div role="alert" className="border border-danger bg-danger/10 p-4 text-danger font-bold">PARO DE EMERGENCIA ACTIVO EN LA MAQUETA</div>}
       {estado.protocolo === 'fase1' && <div className="text-xs text-inkdim">Fase1: supervision del control local. Los mandos fisicos se operan en la maqueta.</div>}
@@ -414,7 +448,7 @@ export default function OperacionPage() {
           </button>
           <button
             className="btn-ghost"
-            disabled={!grua.suspendida}
+            disabled={!grua.suspendida || !!estado.fase3?.grua_suspendida_clima}
             onClick={() => enviarComando('GruaReanudar')}
             title={grua.suspendida ? 'Reanudar cola de trabajos' : 'Disponible solo si la grua esta suspendida'}
           >

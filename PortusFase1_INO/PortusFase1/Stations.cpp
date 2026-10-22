@@ -22,6 +22,7 @@
   ============================================================
 */
 #include "Stations.h"
+#include "Fase3Control.h"
 #include "Config.h"
 #include "PreloadedData.h"
 #include "Weighing.h"
@@ -122,10 +123,13 @@ static Turno* turnoLibre() {
 // ============================================================
 // GARITA (capacidad 1)
 // ============================================================
-enum EstadoGarita { GAR_LIBRE, GAR_LEYENDO, GAR_VALIDANDO, GAR_ESPERANDO_TALANQUERA, GAR_AUTORIZADO_ESPERANDO_PASO, GAR_RECHAZADO_MOSTRANDO };
+enum EstadoGarita { GAR_LIBRE, GAR_LEYENDO, GAR_VALIDANDO, GAR_VERIFICANDO_F3, GAR_ESPERANDO_TALANQUERA, GAR_AUTORIZADO_ESPERANDO_PASO, GAR_RECHAZADO_MOSTRANDO };
 static EstadoGarita estadoGarita = GAR_LIBRE;
 static uint32_t garitaDesdeMs = 0;
 static Turno *turnoEnGarita = nullptr;
+static int pendingCamionF3 = -1;
+static int pendingManifF3 = -1;
+static int8_t pendingPosF3 = -1;
 
 // Garita y Salida comparten el mismo servo/semaforo (misma talanquera fisica).
 // Esta variable evita que ambos lo controlen al mismo tiempo si llegan a
@@ -231,6 +235,27 @@ static void garita_update() {
         estadoGarita = GAR_RECHAZADO_MOSTRANDO; garitaDesdeMs = millis(); return;
       }
 
+      // Solo se dispara la captura tras superar las validaciones locales.
+      Serial.print(F("@PORTUS GaritaRFID;uid="));
+      for (byte i = 0; i < rfid.uid.size; i++) {
+        if (rfid.uid.uidByte[i] < 0x10) Serial.print('0');
+        Serial.print(rfid.uid.uidByte[i], HEX);
+      }
+      Serial.println();
+
+      if (fase3_gate_enabled()) {
+        // La verificacion es optativa. Aun no se crea turno ni se reserva
+        // patio; un rechazo deja el flujo aprobado de Fase 1 intacto.
+        pendingCamionF3 = idCamion;
+        pendingManifF3 = idManif;
+        pendingPosF3 = posicionAsignada;
+        fase3_gate_begin();
+        garitaDesdeMs = millis();
+        lcdMostrar("LEYENDO PLACA", "ESPERE");
+        estadoGarita = GAR_VERIFICANDO_F3;
+        break;
+      }
+
       t->id = siguienteIdTurno++;
       t->activo = true;
       t->idCamion = idCamion;
@@ -241,6 +266,7 @@ static void garita_update() {
       t->pesajeFinalValido = false;
       t->posicionPatioAsignada = posicionAsignada;
       t->retenido = false;
+      t->retencionFase3 = 0;
       t->esperandoGrua = false;
       t->cantidadTrabajosGrua = 0;
       t->timestampInicioMs = millis();
@@ -254,7 +280,83 @@ static void garita_update() {
       estadoGarita = GAR_ESPERANDO_TALANQUERA;
       break;
     }
+    case GAR_VERIFICANDO_F3: {
+      int decision = fase3_gate_decision();
+      if (decision == 0) {
+        if (millis() - garitaDesdeMs > fase3_gate_wait_ms())
+          lcdMostrar("VERIFICACION", "MANUAL");
+        return;
+      }
+      if (decision < 0 || pendingCamionF3 < 0 || pendingManifF3 < 0) {
+        lcdMostrar("ACCESO DENEGADO", "PLACA RECHAZADA");
+        estadoGarita = GAR_RECHAZADO_MOSTRANDO;
+        garitaDesdeMs = millis();
+        return;
+      }
+      Manifiesto &m = MANIFIESTOS[pendingManifF3];
+      if (m.tipo == OP_DEPOSITO && !yard_esAccesible(pendingPosF3)) {
+        safety_reportarCausa("Patio lleno durante verificacion de placa");
+        estadoGarita = GAR_RECHAZADO_MOSTRANDO;
+        garitaDesdeMs = millis();
+        return;
+      }
+      Turno *t = turnoLibre();
+      if (!t) {
+        safety_reportarCausa("Sin turno libre tras verificacion de placa");
+        estadoGarita = GAR_RECHAZADO_MOSTRANDO;
+        garitaDesdeMs = millis();
+        return;
+      }
+      t->id = siguienteIdTurno++;
+      t->activo = true;
+      t->idCamion = pendingCamionF3;
+      t->idManifiesto = pendingManifF3;
+      t->estacionActual = EST_GARITA;
+      t->siguienteEstacion = EST_PESAJE;
+      t->pesajeInicialValido = false;
+      t->pesajeFinalValido = false;
+      t->posicionPatioAsignada = pendingPosF3;
+      t->retenido = false;
+      t->retencionFase3 = fase3_gate_retention();
+      t->esperandoGrua = false;
+      t->cantidadTrabajosGrua = 0;
+      t->timestampInicioMs = millis();
+      m.estado = MANIF_EN_PROCESO;
+      if (m.tipo == OP_DEPOSITO) yard_reservarPosicion(pendingPosF3);
+      turnoEnGarita = t;
+      lcdMostrar(fase3_gate_label(), fase3_gate_plate());
+      estadoGarita = GAR_ESPERANDO_TALANQUERA;
+      break;
+    }
     case GAR_ESPERANDO_TALANQUERA: {
+      // El modo de dos factores es optativo y arranca apagado. Con el modo
+      // activo la talanquera permanece cerrada hasta recibir OCR o decision
+      // manual desde la Raspberry. Sin respuesta nunca abre sola.
+      if (fase3_gate_enabled()) {
+        int decision = fase3_gate_decision();
+        if (decision == 0) {
+          if (millis() - garitaDesdeMs > fase3_gate_wait_ms())
+            lcdMostrar("VERIFICACION", "MANUAL");
+          return;
+        }
+        if (decision < 0) {
+          lcdMostrar(fase3_gate_label(), fase3_gate_plate());
+          Turno *t = turnoEnGarita;
+          if (t) {
+            Manifiesto &m = MANIFIESTOS[t->idManifiesto];
+            if (m.tipo == OP_DEPOSITO) yard_cancelarReserva(t->posicionPatioAsignada);
+            m.estado = MANIF_PENDIENTE;
+            t->activo = false;
+          }
+          turnoEnGarita = nullptr;
+          safety_reportarCausa("Placa rechazada por servidor");
+          estadoGarita = GAR_RECHAZADO_MOSTRANDO;
+          garitaDesdeMs = millis();
+          return;
+        }
+        if (turnoEnGarita) turnoEnGarita->retencionFase3 = fase3_gate_retention();
+        lcdMostrar(fase3_gate_label(), fase3_gate_plate());
+      }
       // la talanquera es compartida con salida: si salida la tiene ocupada
       // ahorita, esperamos aqui en vez de pisarle el servo/semaforo
       if (duenoTalanquera == 2) return;
@@ -373,7 +475,20 @@ static void pesaje_update() {
       Serial.print(m.toleranciaKg, 2);
       Serial.println(F(" kg)"));
 
-      if (turnoEnPesaje->retenido) {
+      if (turnoEnPesaje->retencionFase3 && esInicial) {
+        turnoEnPesaje->pesajeInicialKg = lecturaKg;
+        turnoEnPesaje->pesajeInicialValido = true;
+        turnoEnPesaje->pesajeFinalKg = lecturaKg;
+        turnoEnPesaje->pesajeFinalValido = true;
+        turnoEnPesaje->retenido = true;
+        turnoEnPesaje->estacionActual = EST_SALIDA;
+        digitalWrite(PIN_FLECHA_VERDE, LOW); digitalWrite(PIN_FLECHA_AMBAR, HIGH);
+        servoAguja.write(AGUJA_RAMAL);
+        Serial.print(F("@PORTUS Fase3Retencion;placa="));
+        Serial.print(CAMIONES[turnoEnPesaje->idCamion].placa);
+        Serial.print(F(";causa=RT0"));
+        Serial.println(turnoEnPesaje->retencionFase3);
+      } else if (turnoEnPesaje->retenido) {
         // el sensor IR del ramal ya decidio por su cuenta: se respeta
         // esa decision sin importar si el peso hubiera salido bien.
         // Se marca pesajeFinalValido de una vez: como salida ya acepta

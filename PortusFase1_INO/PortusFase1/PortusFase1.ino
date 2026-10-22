@@ -36,6 +36,7 @@
 #include "Stations.h"
 #include "Safety.h"
 #include "Console.h"
+#include "Fase3Control.h"
 
 void setup() {
   console_init();      // Serial.begin() debe ir primero
@@ -44,6 +45,7 @@ void setup() {
   crane_init();          // configura pines de motores/sensores; NO tiene timer propio
   yard_init();
   stations_init();
+  fase3_init();
 
   Serial.println(F("Sistema inicializado. La grua espera el pin 25 (IR transferencia) para referenciarse."));
 }
@@ -74,4 +76,5 @@ void loop() {
   }
 
   console_update();       // siempre activo, no bloqueante
+  fase3_update();
 }

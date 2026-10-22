@@ -14,6 +14,7 @@
 #include "Weighing.h"
 #include "Safety.h"
 #include "PreloadedData.h"
+#include "Fase3Control.h"
 #include <Arduino.h>
 
 static String buffer = "";
@@ -67,6 +68,7 @@ static void imprimirAyuda() {
 static void procesarComando(String cmd) {
   cmd.trim();
   cmd.toUpperCase();
+  if (fase3_command(cmd)) return;
 
   if (cmd == "AYUDA") {
     imprimirAyuda();
@@ -162,7 +164,7 @@ void console_update() {
       if (buffer.length() > 0) { procesarComando(buffer); buffer = ""; }
     } else {
       buffer += c;
-      if (buffer.length() > 40) buffer = ""; // proteccion contra basura
+      if (buffer.length() > 80) buffer = ""; // proteccion contra basura
     }
   }
 }

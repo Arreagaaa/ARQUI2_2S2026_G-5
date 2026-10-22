@@ -38,6 +38,7 @@ from .yard_crane_manager import (
     get_crane_history, record_crane_cycle
 )
 from .metrics import calculate_metrics, export_report_csv
+from . import fase3
 from ..mensajeria.messaging_service import TransportistaMessagingService, generate_binding_code
 from ..mensajeria import notifier
 
@@ -60,6 +61,20 @@ msg_service = TransportistaMessagingService()
 
 # Cliente MQTT del servidor
 mqtt_client: mqtt.Client = None
+
+
+def _fase3_publish(topic, data):
+    if mqtt_client:
+        mqtt_client.publish(topic, json.dumps(data), qos=1)
+
+
+def _fase3_broadcast(topic, data):
+    terminal_state["fase3"] = data
+    dispatch_event_to_sse({"topic": topic, "data": data, "state": copy.deepcopy(terminal_state)})
+
+
+fase3_runtime = fase3.Runtime(_fase3_publish, _fase3_broadcast)
+terminal_state["fase3"] = fase3_runtime.snapshot()
 
 
 def _refresh_parqueo_state():
@@ -116,16 +131,221 @@ def dispatch_event_to_sse(event_data: dict):
 
 def on_mqtt_message(client, userdata, msg):
     try:
+        if msg.topic == "portus/cmd/solicitud":
+            payload = json.loads(msg.payload.decode("utf-8"))
+            if payload.get("comando") == "CapturaFin":
+                # La camara libero su bloqueo: restablecer el modo vigente.
+                with telemetry_lock:
+                    fase3_runtime.lights = None
+                    fase3_runtime.light_rule()
+            return
+        if msg.topic in ("portus/estacion/lectura", "portus/estacion/estado"):
+            payload = json.loads(msg.payload.decode("utf-8"))
+            with telemetry_lock:
+                fase3_runtime.ingest(msg.topic, payload)
+            return
+        if msg.topic == "portus/vision/estado":
+            payload = json.loads(msg.payload.decode("utf-8"))
+            with telemetry_lock:
+                fase3_runtime.last_camera_heartbeat = time.monotonic()
+                fase3_runtime.set_camera(payload.get("operativa") is True, publish=False)
+                if not payload.get("operativa") and fase3_runtime.pending_access_id:
+                    conn = get_db_connection()
+                    try:
+                        conn.execute("UPDATE fase3_accesos SET resultado='MODO DEGRADADO' WHERE id=?",
+                                     (fase3_runtime.pending_access_id,))
+                        conn.commit()
+                    finally:
+                        conn.close()
+            return
+        if msg.topic == "portus/vision/cola":
+            payload = json.loads(msg.payload.decode("utf-8"))
+            if isinstance(payload.get("cantidad"), int) and payload["cantidad"] >= 0:
+                with telemetry_lock:
+                    fase3_runtime.set_queue(payload["cantidad"], publish=False)
+            return
+        if msg.topic == "portus/vision/placa":
+            payload = json.loads(msg.payload.decode("utf-8"))
+            _fase3_record_plate(payload)
+            return
         if not (msg.topic.startswith("portus/evt/") or msg.topic == "portus/cmd/respuesta"):
             return
         data = json.loads(msg.payload.decode("utf-8"))
+        if msg.topic == "portus/evt/garita" and data.get("tipo") == "GaritaModo":
+            with telemetry_lock:
+                fase3_runtime.gate_enabled = str(data.get("datos", {}).get("activo")) == "1"
+                fase3_runtime.emit()
+        if msg.topic == "portus/evt/garita" and data.get("tipo") == "GaritaRFID" and fase3_runtime.gate_enabled:
+            _fase3_begin_access(str(data.get("datos", {}).get("uid") or ""))
+        if data.get("tipo") == "Fase3Retencion":
+            _fase3_physical_retention(data.get("datos") or {})
         with telemetry_lock:
             if process_event(terminal_state, data, msg.topic):
+                _fase3_link_accesses()
                 _refresh_parqueo_state()
                 dispatch_event_to_sse({"topic": msg.topic, "data": data, "state": copy.deepcopy(terminal_state)})
                 _evaluar_pesaje_tol(data)
     except Exception:
         logging.exception("Error procesando telemetria MQTT")
+
+
+def _fase3_record_plate(data):
+    uid = str(data.get("uid") or "").upper()
+    if not uid:
+        return
+    attempts = data.get("intentos") if isinstance(data.get("intentos"), list) else [data]
+    if not attempts:
+        return
+    chosen = attempts[-1]
+    for candidate in attempts:
+        try:
+            test = fase3.verify_plate(uid, candidate.get("placa"), float(candidate.get("confianza")))
+        except (TypeError, ValueError):
+            continue
+        if test["resultado"] != "VERIFICACION MANUAL":
+            chosen = candidate
+            break
+    confidence = chosen.get("confianza")
+    try:
+        confidence = float(confidence) if confidence is not None else None
+    except (ValueError, TypeError):
+        confidence = None
+    result = fase3.verify_plate(uid, chosen.get("placa"), confidence)
+    conn = get_db_connection()
+    try:
+        pending = fase3_runtime.pending_access_id if fase3_runtime.gate_enabled else None
+        if pending:
+            active = conn.execute("SELECT rfid_uid FROM fase3_accesos WHERE id=?", (pending,)).fetchone()
+            if not active or str(active["rfid_uid"]).upper() != uid:
+                pending = None
+        manual_required = bool(pending and fase3_runtime.pending_since is None)
+        effective_result = "VERIFICACION MANUAL" if manual_required else result["resultado"]
+        if pending:
+            conn.execute("""UPDATE fase3_accesos SET placa_leida=?,confianza=?,placa_esperada=?,resultado=?,foto=? WHERE id=? AND rfid_uid=?""",
+                         (fase3.norm_plate(chosen.get("placa")), confidence, result.get("placa_esperada"),
+                          effective_result, chosen.get("foto"), pending, uid))
+            access_id = pending
+            fase3_runtime.pending_access_id = None
+            fase3_runtime.pending_since = None
+        else:
+            cur = conn.execute("""INSERT INTO fase3_accesos
+                (timestamp,rfid_uid,placa_leida,confianza,placa_esperada,resultado,foto)
+                VALUES (?,?,?,?,?,?,?)""",
+                (fase3.now(), uid, fase3.norm_plate(chosen.get("placa")), confidence,
+                 result.get("placa_esperada"), result["resultado"], chosen.get("foto")))
+            access_id = cur.lastrowid
+        for index, attempt in enumerate(attempts, start=1):
+            if attempt.get("foto"):
+                conn.execute("INSERT INTO fase3_fotos(acceso_id,intento,ruta,placa_leida,confianza) VALUES (?,?,?,?,?)",
+                             (access_id, index, attempt["foto"], fase3.norm_plate(attempt.get("placa")),
+                              attempt.get("confianza")))
+        conn.commit()
+    finally:
+        conn.close()
+    alarms = {"PLACA NO COINCIDE": "AL20", "PLACA RESTRINGIDA": "AL21",
+              "VERIFICACION MANUAL": "AL22"}
+    if result["resultado"] in alarms:
+        from .telemetry import alarm_once
+        alarm_once(alarms[result["resultado"]], {"acceso_id": access_id})
+    if pending and not manual_required and result["resultado"] in ("PLACA VERIFICADA", "PLACA NO COINCIDE", "PLACA RESTRINGIDA"):
+        decision = {"PLACA VERIFICADA": "AUTORIZAR", "PLACA NO COINCIDE": "RETENER07",
+                    "PLACA RESTRINGIDA": "RETENER08"}[result["resultado"]]
+        fase3_runtime.command("GaritaResultado", resultado=decision, placa=result["placa_leida"])
+    if result["resultado"] == "PLACA VERIFICADA" and chosen.get("foto") and result.get("transportista_id"):
+        conn = get_db_connection()
+        try:
+            row = conn.execute("""SELECT contenedor_id,tipo_operacion FROM turnos
+                WHERE placa_vehiculo=? ORDER BY id DESC LIMIT 1""", (result["placa_esperada"],)).fetchone()
+        finally:
+            conn.close()
+        container = row["contenedor_id"] if row else "sin turno vinculado"
+        operation = row["tipo_operacion"] if row else "sin operacion vinculada"
+        notifier.send_photo(result["transportista_id"], chosen["foto"],
+            f"Ingreso verificado: {result['placa_leida']} a las {fase3.now()}. Contenedor: {container}. Operacion: {operation}.")
+    with telemetry_lock:
+        _fase3_link_accesses()
+        terminal_state["fase3"]["ultimo_acceso"] = {"id": access_id, **result}
+        dispatch_event_to_sse({"topic": "portus/vision/placa", "data": {"id": access_id, **result},
+                               "state": copy.deepcopy(terminal_state)})
+
+
+def _fase3_begin_access(uid):
+    if not uid:
+        return
+    result = "LEYENDO PLACA" if fase3_runtime.camera_online else "MODO DEGRADADO"
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("INSERT INTO fase3_accesos(timestamp,rfid_uid,resultado) VALUES (?,?,?)",
+                           (fase3.now(), uid.upper(), result))
+        conn.commit()
+        fase3_runtime.pending_access_id = cur.lastrowid
+        fase3_runtime.pending_since = time.monotonic()
+    finally:
+        conn.close()
+    if result == "MODO DEGRADADO":
+        from .telemetry import alarm_once
+        alarm_once("AL18")
+    with telemetry_lock:
+        terminal_state["fase3"]["ultimo_acceso"] = {"id": fase3_runtime.pending_access_id, "resultado": result}
+        dispatch_event_to_sse({"topic": "portus/vision/placa", "state": copy.deepcopy(terminal_state)})
+
+
+def _fase3_physical_retention(values):
+    plate = fase3.norm_plate(values.get("placa"))
+    cause = values.get("causa")
+    if not plate or cause not in ("RT07", "RT08"):
+        return
+    turn = get_active_turn_by_vehicle(plate)
+    if not turn:
+        logging.warning("Retencion fisica %s sin turno digital para %s", cause, plate)
+        return
+    conn = get_db_connection()
+    try:
+        exists = conn.execute("SELECT 1 FROM retenciones WHERE turno_id=? AND causa=?", (turn["id"], cause)).fetchone()
+    finally:
+        conn.close()
+    if exists:
+        return
+    retained = assign_retention(turn["id"], cause, "PESAJE",
+                                observacion=f"Desvio fisico por {cause} tras pesaje")
+    if not retained:
+        from .telemetry import alarm_once
+        alarm_once("AL11", {"descripcion": "Parqueo lleno ante retencion de placa"})
+        return
+    fase3.audit("automatico", "retencion_placa", {"placa": plate, "causa": cause, "plaza": retained["plaza"]})
+    notifier.send(turn["transportista_id"],
+                  f"PORTUS: vehiculo {plate} retenido por {cause} en plaza {retained['plaza']}.")
+
+
+def _fase3_link_accesses():
+    """Asocia una captura al turno cuando la telemetria crea el turno real."""
+    conn = get_db_connection()
+    try:
+        pending = conn.execute("""SELECT a.*,c.placa AS catalog_plate FROM fase3_accesos a
+            JOIN catalogo_camiones c ON UPPER(c.rfid_uid)=UPPER(a.rfid_uid)
+            WHERE a.turno_id IS NULL AND a.resultado IN
+            ('PLACA VERIFICADA','PLACA NO COINCIDE','PLACA RESTRINGIDA','CONFIRMAR')""").fetchall()
+        linked = []
+        for access in pending:
+            turn = conn.execute("SELECT id,tiempo_inicio FROM turnos WHERE placa_vehiculo=? ORDER BY id DESC LIMIT 1",
+                                (access["catalog_plate"],)).fetchone()
+            if not turn:
+                continue
+            try:
+                age = abs((datetime.fromisoformat(turn["tiempo_inicio"]) - datetime.fromisoformat(access["timestamp"])).total_seconds())
+            except (TypeError, ValueError):
+                continue
+            if age > 300:
+                continue
+            conn.execute("UPDATE fase3_accesos SET turno_id=? WHERE id=?", (turn["id"], access["id"]))
+            linked.append((turn["id"], access))
+        conn.commit()
+    finally:
+        conn.close()
+    for turn_id, access in linked:
+        add_timeline_event(turn_id, "servidor", "Verificacion de placa en garita",
+                           {"acceso_id": access["id"], "placa": access["placa_leida"],
+                            "resultado": access["resultado"], "foto": access["foto"]})
 
 
 # Umbral de orden de magnitud entre el pesaje fisico y el declarado.
@@ -293,6 +513,23 @@ def init_mqtt():
         while True:
             time.sleep(2)
             with telemetry_lock:
+                fase3_runtime.tick()
+                if (fase3_runtime.camera_online and fase3_runtime.last_camera_heartbeat and
+                    time.monotonic() - fase3_runtime.last_camera_heartbeat > 15):
+                    fase3_runtime.set_camera(False)
+                if (fase3_runtime.pending_access_id and fase3_runtime.pending_since and
+                    time.monotonic() - fase3_runtime.pending_since > fase3.params()["SegundosEsperaVerificacion"]):
+                    conn = get_db_connection()
+                    try:
+                        conn.execute("UPDATE fase3_accesos SET resultado='VERIFICACION MANUAL' WHERE id=? AND resultado='LEYENDO PLACA'",
+                                     (fase3_runtime.pending_access_id,))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                    from .telemetry import alarm_once
+                    alarm_once("AL22")
+                    fase3_runtime.pending_since = None
+                _fase3_publish("portus/fase3/latido", {"timestamp": fase3.now()})
                 stamp = terminal_state.get('ultimo_latido_timestamp')
                 if stamp and terminal_state['enlace']=='CONECTADO':
                     elapsed = (datetime.now(timezone.utc)-datetime.fromisoformat(stamp)).total_seconds()
@@ -499,6 +736,13 @@ def execute_remote_command():
 
     if not comando:
         return jsonify({"error": "Comando no especificado"}), 400
+    if comando in ("GaritaResultado", "GaritaModo", "CapturaInicio", "CapturaFin",
+                   "IluminacionEncender", "IluminacionApagar"):
+        return jsonify({"error": "Este comando se gestiona desde la regla de Fase 3"}), 403
+    if comando == "GruaReanudar" and fase3_runtime.suspended_since:
+        return jsonify({"error": "La grua suspendida por lluvia solo se reanuda automaticamente"}), 409
+    if comando in ("GruaSuspender", "GruaReanudar") and parametros.get("motivo") == "Clima":
+        return jsonify({"error": "El motivo Clima se reserva para la regla automatica"}), 403
 
     # Publicar comando a portus/cmd/solicitud
     msg_id = str(uuid.uuid4())
@@ -988,7 +1232,7 @@ def list_retenciones():
 
     if user_rol == "AUTORIDAD":
         # Autoridad solo ve retenciones de causa aduanera (RT03 y RT05)
-        query += " AND r.causa IN ('RT03', 'RT05')"
+        query += " AND r.causa IN ('RT03', 'RT05', 'RT08')"
     elif user_rol == "TERMINAL":
         pass  # Terminal ve todas en su pestaña de retenciones
 
@@ -1602,6 +1846,240 @@ def simular_comando_transportista():
 # -------------------------------------------------------------
 # SERVICIO DE LA SPA REACT (modo produccion: frontend/dist)
 # -------------------------------------------------------------
+@app.route("/api/fase3/estado")
+@login_required
+@require_permission("ver_sinoptico")
+def fase3_estado():
+    return jsonify(fase3_runtime.snapshot())
+
+
+@app.route("/api/fase3/parametros", methods=["GET", "PUT"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_parametros():
+    if request.method == "GET":
+        return jsonify(fase3.params())
+    try:
+        values = fase3.set_params(request.get_json() or {})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    fase3.audit(session["user"]["username"], "parametros_fase3", request.get_json() or {})
+    if mqtt_client:
+        mqtt_client.publish("portus/estacion/config", json.dumps({k: values[k] for k in
+            ("SegundosLecturaEstacion", "SegundosLatidoEstacion")}), qos=1, retain=True)
+        mqtt_client.publish("portus/vision/config", json.dumps({k: values[k] for k in
+            ("ConfianzaMinimaOCR", "IntentosOCR", "SegundosConteoCola")}), qos=1, retain=True)
+    if "SegundosEsperaVerificacion" in (request.get_json() or {}):
+        fase3_runtime.command("GaritaEspera", segundos=int(values["SegundosEsperaVerificacion"]))
+    return jsonify(values)
+
+
+@app.route("/api/fase3/iluminacion", methods=["POST"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_iluminacion():
+    try:
+        with telemetry_lock:
+            fase3_runtime.set_mode((request.get_json() or {}).get("modo"), session["user"]["username"])
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(fase3_runtime.snapshot())
+
+
+@app.route("/api/fase3/garita/modo", methods=["POST"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_garita_modo():
+    enabled = (request.get_json() or {}).get("activo")
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "activo debe ser booleano"}), 400
+    if enabled and fase3_runtime.camera_online is not True:
+        return jsonify({"error": "La camara debe estar operativa para activar dos factores"}), 409
+    if not enabled and fase3_runtime.pending_access_id:
+        return jsonify({"error": "Resuelva primero el acceso pendiente"}), 409
+    if enabled and (mqtt_client is None or terminal_state.get("enlace") != "CONECTADO"):
+        return jsonify({"error": "Se requiere enlace real con el controlador"}), 409
+    with telemetry_lock:
+        fase3_runtime.command("GaritaModo", activo=enabled)
+    fase3.audit(session["user"]["username"], "modo_doble_factor", {"activo": enabled})
+    return jsonify({"despachado": True, "activo_solicitado": enabled})
+
+
+@app.route("/api/fase3/placas", methods=["GET", "POST"])
+@login_required
+def fase3_placas():
+    if request.method == "POST" and session["user"]["rol"] != "AUTORIDAD":
+        return jsonify({"error": "Solo AUTORIDAD puede restringir placas"}), 403
+    if request.method == "GET" and session["user"]["rol"] not in ("AUTORIDAD", "TERMINAL"):
+        return jsonify({"error": "Permiso insuficiente"}), 403
+    conn = get_db_connection()
+    try:
+        if request.method == "GET":
+            return jsonify([dict(r) for r in conn.execute("SELECT * FROM fase3_placas_restringidas ORDER BY alta_at DESC")])
+        data = request.get_json() or {}
+        plate = fase3.norm_plate(data.get("placa"))
+        reason = str(data.get("motivo") or "").strip()
+        if not fase3.PLATE.fullmatch(plate) or len(reason) < 10:
+            return jsonify({"error": "Placa C123ABC y motivo de al menos 10 caracteres requeridos"}), 400
+        row = conn.execute("SELECT baja_at FROM fase3_placas_restringidas WHERE placa=?", (plate,)).fetchone()
+        if row and row["baja_at"] is None:
+            return jsonify({"error": "La placa ya esta restringida"}), 409
+        conn.execute("INSERT OR REPLACE INTO fase3_placas_restringidas VALUES (?,?,?,?,NULL,NULL,NULL)",
+                     (plate, reason, session["user"]["username"], fase3.now()))
+        conn.commit()
+    finally:
+        conn.close()
+    fase3.audit(session["user"]["username"], "restringir_placa", {"placa": plate, "motivo": reason})
+    return jsonify({"placa": plate}), 201
+
+
+@app.route("/api/fase3/placas/<placa>/liberar", methods=["POST"])
+@login_required
+@require_permission("gestionar_placas")
+def fase3_liberar_placa(placa):
+    reason = str((request.get_json() or {}).get("motivo") or "").strip()
+    if len(reason) < 10:
+        return jsonify({"error": "Motivo de al menos 10 caracteres requerido"}), 400
+    plate = fase3.norm_plate(placa)
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("UPDATE fase3_placas_restringidas SET baja_at=?,usuario_baja=?,motivo_baja=? WHERE placa=? AND baja_at IS NULL",
+                           (fase3.now(), session["user"]["username"], reason, plate))
+        conn.commit()
+        if not cur.rowcount:
+            return jsonify({"error": "Placa no restringida"}), 404
+    finally:
+        conn.close()
+    fase3.audit(session["user"]["username"], "liberar_placa", {"placa": plate, "motivo": reason})
+    return jsonify({"success": True})
+
+
+@app.route("/api/fase3/accesos")
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_accesos():
+    conn = get_db_connection()
+    try:
+        return jsonify([dict(r) for r in conn.execute("SELECT * FROM fase3_accesos ORDER BY id DESC LIMIT 200")])
+    finally:
+        conn.close()
+
+
+@app.route("/api/fase3/vehiculos", methods=["GET", "POST"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_vehiculos():
+    conn = get_db_connection()
+    try:
+        if request.method == "GET":
+            return jsonify([dict(r) for r in conn.execute("SELECT * FROM catalogo_camiones ORDER BY placa")])
+        data = request.get_json() or {}
+        plate = fase3.norm_plate(data.get("placa"))
+        uid = str(data.get("rfid_uid") or "").strip().upper()
+        owner = str(data.get("transportista_id") or "").strip()
+        reason = str(data.get("motivo") or "").strip()
+        try:
+            tare = int(data.get("tara_g"))
+        except (ValueError, TypeError):
+            tare = -1
+        if not fase3.PLATE.fullmatch(plate) or not re.fullmatch(r"[A-F0-9]{8,20}", uid) or tare < 0 or len(reason) < 10:
+            return jsonify({"error": "Placa C123ABC, UID hexadecimal, tara y motivo de 10 caracteres requeridos"}), 400
+        if not conn.execute("SELECT 1 FROM usuarios WHERE username=? AND rol='TRANSPORTISTA'", (owner,)).fetchone():
+            return jsonify({"error": "Transportista no encontrado"}), 400
+        try:
+            conn.execute("INSERT INTO catalogo_camiones(placa,transportista_id,tara_g,rfid_uid,activo) VALUES (?,?,?,?,1)",
+                         (plate, owner, tare, uid))
+            conn.commit()
+        except Exception:
+            return jsonify({"error": "Placa o RFID ya registrado"}), 409
+    finally:
+        conn.close()
+    fase3.audit(session["user"]["username"], "alta_vehiculo", {"placa": plate, "motivo": reason})
+    return jsonify({"placa": plate}), 201
+
+
+@app.route("/api/fase3/vehiculos/<placa>", methods=["PUT", "DELETE"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_modificar_vehiculo(placa):
+    data = request.get_json() or {}
+    reason = str(data.get("motivo") or "").strip()
+    if len(reason) < 10:
+        return jsonify({"error": "Motivo de al menos 10 caracteres requerido"}), 400
+    old = fase3.norm_plate(placa)
+    conn = get_db_connection()
+    try:
+        if not conn.execute("SELECT 1 FROM catalogo_camiones WHERE placa=?", (old,)).fetchone():
+            return jsonify({"error": "Vehiculo no encontrado"}), 404
+        if request.method == "DELETE":
+            conn.execute("UPDATE catalogo_camiones SET activo=0 WHERE placa=?", (old,))
+            action = "desactivar_vehiculo"
+            new = old
+        else:
+            new = fase3.norm_plate(data.get("placa", old))
+            uid = str(data.get("rfid_uid") or "").strip().upper()
+            if not fase3.PLATE.fullmatch(new) or not re.fullmatch(r"[A-F0-9]{8,20}", uid):
+                return jsonify({"error": "Placa o UID invalido"}), 400
+            if conn.execute("SELECT 1 FROM turnos WHERE placa_vehiculo=? AND estado_actual NOT IN ('Cerrado','Anulado')", (old,)).fetchone():
+                return jsonify({"error": "No modificar placa con turno activo"}), 409
+            try:
+                conn.execute("UPDATE catalogo_camiones SET placa=?,rfid_uid=? WHERE placa=?", (new, uid, old))
+            except Exception:
+                return jsonify({"error": "Placa o RFID ya registrado"}), 409
+            action = "modificar_vehiculo"
+        conn.commit()
+    finally:
+        conn.close()
+    fase3.audit(session["user"]["username"], action, {"anterior": old, "placa": new, "motivo": reason})
+    return jsonify({"success": True, "placa": new})
+
+
+@app.route("/api/fase3/accesos/<int:access_id>/foto")
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_foto(access_id):
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT foto FROM fase3_accesos WHERE id=?", (access_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["foto"]:
+        return jsonify({"error": "Foto no disponible"}), 404
+    filename = os.path.basename(row["foto"])
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "PortusFase3", "fotos"))
+    if not os.path.isfile(os.path.join(root, filename)):
+        return jsonify({"error": "Foto no encontrada en disco"}), 404
+    return send_from_directory(root, filename)
+
+
+@app.route("/api/fase3/accesos/<int:access_id>/decision", methods=["POST"])
+@login_required
+@require_permission("gestionar_fase3")
+def fase3_decision_acceso(access_id):
+    data = request.get_json() or {}
+    choice = data.get("decision")
+    reason = str(data.get("motivo") or "").strip()
+    if choice not in ("CONFIRMAR", "RECHAZAR") or len(reason) < 10:
+        return jsonify({"error": "Decision y motivo de al menos 10 caracteres requeridos"}), 400
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM fase3_accesos WHERE id=?", (access_id,)).fetchone()
+        if not row or row["resultado"] not in ("VERIFICACION MANUAL", "MODO DEGRADADO"):
+            return jsonify({"error": "Verificacion pendiente no encontrada"}), 404
+        conn.execute("UPDATE fase3_accesos SET resultado=?,usuario_decision=?,motivo_decision=? WHERE id=?",
+                     (choice, session["user"]["username"], reason, access_id))
+        conn.commit()
+    finally:
+        conn.close()
+    fase3_runtime.command("GaritaResultado", resultado="AUTORIZAR" if choice == "CONFIRMAR" else "RECHAZAR",
+                          placa=row["placa_leida"] or "")
+    if fase3_runtime.pending_access_id == access_id:
+        fase3_runtime.pending_access_id = None
+        fase3_runtime.pending_since = None
+    fase3.audit(session["user"]["username"], "decision_acceso", {"id": access_id, "decision": choice, "motivo": reason})
+    return jsonify({"success": True})
+
+
 @app.route("/<path:ruta_spa>")
 def servir_spa(ruta_spa):
     """

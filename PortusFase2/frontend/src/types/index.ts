@@ -94,7 +94,7 @@ export interface EventoTimeline {
   valores_asociados: string | null
 }
 
-export type CausaRetencion = 'RT01' | 'RT02' | 'RT03' | 'RT04' | 'RT05' | 'RT06'
+export type CausaRetencion = 'RT01' | 'RT02' | 'RT03' | 'RT04' | 'RT05' | 'RT06' | 'RT07' | 'RT08'
 
 export interface Retencion {
   id: number
@@ -199,6 +199,8 @@ export interface FranjaBloqueada {
 }
 
 export interface Metricas {
+  disponibilidad_grua_pct?: number | null
+  tiempo_no_operativo_clima_seg?: number
   remociones_por_contenedor_retirado: number | null
   ciclos_grua_por_operacion: number | null
   distancia_total_grua_m: number | null
@@ -223,6 +225,18 @@ export interface Metricas {
 // Estado general de la maqueta que llega embebido en cada evento SSE
 // (campo "state" de app.py: terminal_state).
 export interface EstadoTerminal {
+  fase3?: {
+    estacion_operativa: boolean
+    ultima_lectura: { temperatura: number; humedad: number; lluvia: boolean; luz: number; timestamp: string } | null
+    lloviendo: boolean | null
+    grua_suspendida_clima: string | null
+    modo_iluminacion: string
+    iluminacion_encendida: boolean | null
+    cola: number | null
+    camara_operativa: boolean | null
+    doble_factor_activo: boolean
+    ultimo_acceso?: { id: number; resultado: string; placa_leida?: string }
+  }
   protocolo?: string
   fuente?: string
   sincronizado?: boolean
