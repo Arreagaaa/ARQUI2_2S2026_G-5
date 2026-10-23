@@ -281,6 +281,12 @@ static void garita_update() {
       break;
     }
     case GAR_VERIFICANDO_F3: {
+      if (!fase3_gate_enabled()) {
+        lcdMostrar("ACCESO DENEGADO", "SIN ENLACE");
+        estadoGarita = GAR_RECHAZADO_MOSTRANDO;
+        garitaDesdeMs = millis();
+        return;
+      }
       int decision = fase3_gate_decision();
       if (decision == 0) {
         if (millis() - garitaDesdeMs > fase3_gate_wait_ms())

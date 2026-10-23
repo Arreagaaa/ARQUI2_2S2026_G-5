@@ -145,6 +145,7 @@ class Runtime:
         self.publish = publish
         self.broadcast = broadcast
         self.last_heartbeat = None
+        self.last_reading_at = None
         self.last_reading = None
         self.station_online = False
         self.raining = False
@@ -212,7 +213,10 @@ class Runtime:
         stamp = datetime.now(timezone.utc)
         if topic == "portus/estacion/estado":
             self.last_heartbeat = stamp
-            self.station_online = True
+            if data.get("estado") != "OPERATIVA":
+                self.station_online = False
+                alarm_once("AL16")
+                self.light_rule()
             self.emit()
             return
         if topic == "portus/estacion/lectura":
@@ -224,6 +228,7 @@ class Runtime:
             except (KeyError, ValueError, TypeError):
                 return
             self.last_heartbeat = stamp
+            self.last_reading_at = stamp
             self.station_online = True
             self.last_reading = {"temperatura": temp, "humedad": hum, "luz": luz,
                                  "lluvia": rain, "timestamp": data.get("timestamp", now())}
@@ -261,8 +266,11 @@ class Runtime:
 
     def tick(self):
         stamp = datetime.now(timezone.utc)
-        if self.station_online and self.last_heartbeat:
-            if (stamp - self.last_heartbeat).total_seconds() >= 3 * params()["SegundosLatidoEstacion"]:
+        if self.station_online:
+            limits = params()
+            heartbeat_stale = self.last_heartbeat and (stamp - self.last_heartbeat).total_seconds() >= 3 * limits["SegundosLatidoEstacion"]
+            reading_stale = self.last_reading_at and (stamp - self.last_reading_at).total_seconds() >= 3 * limits["SegundosLecturaEstacion"]
+            if heartbeat_stale or reading_stale:
                 self.station_online = False
                 alarm_once("AL16")
                 self.light_rule()

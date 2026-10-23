@@ -103,6 +103,7 @@ def run(args):
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     next_read = next_beat = 0.0
+    reading_healthy = False
     try:
         while running:
             stamp = time.monotonic()
@@ -110,16 +111,18 @@ def run(args):
                 next_read = stamp + args.read_seconds
                 try:
                     value = sensors.read(args.max_lux)
+                    reading_healthy = True
                     if online:
                         client.publish("portus/estacion/lectura", json.dumps(value), qos=1)
                     else:
                         log.warning("Lectura local sin enlace MQTT: %s", value)
                 except (RuntimeError, OSError) as exc:
+                    reading_healthy = False
                     log.warning("Lectura fallida; se reintentara: %s", exc)
             if stamp >= next_beat:
                 next_beat = stamp + args.heartbeat_seconds
                 if online:
-                    client.publish("portus/estacion/estado", json.dumps({"estado": "OPERATIVA", "timestamp": datetime.now(timezone.utc).isoformat()}), qos=1)
+                    client.publish("portus/estacion/estado", json.dumps({"estado": "OPERATIVA" if reading_healthy else "FALLO_LECTURA", "timestamp": datetime.now(timezone.utc).isoformat()}), qos=1)
             time.sleep(0.1)
     finally:
         client.loop_stop()

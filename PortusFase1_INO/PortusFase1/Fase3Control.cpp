@@ -91,6 +91,14 @@ void fase3_update() {
     digitalWrite(PIN_F3_ILUMINACION, HIGH);
     Serial.println(F("@PORTUS Iluminacion;encendida=1;modo=SinEnlace"));
   }
+  // Sin servidor no se puede completar una verificacion nueva. El turno
+  // pendiente se rechaza en Stations; la garita local vuelve a estar disponible.
+  if (gateEnabled && millis() - lastCommand > 15000UL) {
+    gateEnabled = false;
+    gateDecision = -1;
+    gateLabel = "SIN ENLACE";
+    Serial.println(F("@PORTUS GaritaModo;activo=0"));
+  }
   bool beacon = crane_isClimateSuspended() && ((millis() / 500UL) % 2 == 0);
   digitalWrite(PIN_F3_BALIZA, beacon ? HIGH : LOW);
 }
