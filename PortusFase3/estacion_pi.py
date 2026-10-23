@@ -1,12 +1,13 @@
 """Estacion ambiental para Raspberry Pi 3.
 
 Cableado propuesto: DHT22 en GPIO4, salida digital YL-83 en GPIO17,
-BH1750 en I2C bus 1 direccion 0x23. Este proceso es independiente del
+LDR en divisor resistivo hacia A0 del ADS1115 por I2C. Este proceso es independiente del
 servidor web y publica exclusivamente lecturas reales por MQTT.
 """
 import argparse
 import json
 import logging
+import math
 import signal
 import time
 from pathlib import Path
@@ -17,26 +18,33 @@ import paho.mqtt.client as mqtt
 log = logging.getLogger("portus.estacion")
 
 
+def light_percentage(voltage, dark_voltage, bright_voltage):
+    """Luz relativa 0-100 para LDR hacia 3.3 V y resistencia hacia GND."""
+    if not math.isfinite(voltage) or not 0 <= voltage <= 3.35:
+        raise RuntimeError("Voltaje LDR fuera de rango; revisar divisor y ADS1115")
+    if not 0 <= dark_voltage < bright_voltage <= 3.3:
+        raise ValueError("Calibracion LDR invalida")
+    return round(min(100.0, max(0.0, 100.0 * (voltage - dark_voltage) / (bright_voltage - dark_voltage))), 1)
+
+
 class Sensors:
-    def __init__(self, rain_pin=17, dht_pin=4, bh1750_address=0x23):
+    def __init__(self, rain_pin=17, dht_pin=4, ads1115_address=0x48, ldr_channel=0):
         import board
         import adafruit_dht
         import RPi.GPIO as GPIO
-        import smbus2
+        from adafruit_ads1x15 import ADS1115, AnalogIn, ads1x15
         self.gpio = GPIO
         self.gpio.setmode(GPIO.BCM)
         self.gpio.setup(rain_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.rain_pin = rain_pin
         self.dht = adafruit_dht.DHT22(getattr(board, f"D{dht_pin}"), use_pulseio=False)
-        self.bus = smbus2.SMBus(1)
-        self.address = bh1750_address
+        self.i2c = board.I2C()
+        self.ads = ADS1115(self.i2c, gain=1, address=ads1115_address)
+        self.ldr = AnalogIn(self.ads, (ads1x15.Pin.A0, ads1x15.Pin.A1,
+                                       ads1x15.Pin.A2, ads1x15.Pin.A3)[ldr_channel])
 
-    def read(self, max_lux):
-        # El BH1750 devuelve lux; se calibra el 100% con --max-lux.
-        self.bus.write_byte(self.address, 0x10)
-        time.sleep(0.18)
-        data = self.bus.read_i2c_block_data(self.address, 0x10, 2)
-        lux = ((data[0] << 8) | data[1]) / 1.2
+    def read(self, dark_voltage, bright_voltage):
+        light = light_percentage(self.ldr.voltage, dark_voltage, bright_voltage)
         temperature = self.dht.temperature
         humidity = self.dht.humidity
         if temperature is None or humidity is None:
@@ -44,12 +52,12 @@ class Sensors:
         return {"temperatura": round(float(temperature), 1),
                 "humedad": round(float(humidity), 1),
                 "lluvia": self.gpio.input(self.rain_pin) == self.gpio.LOW,
-                "luz": round(min(100.0, max(0.0, 100.0 * lux / max_lux)), 1),
+                "luz": light,
                 "timestamp": datetime.now(timezone.utc).isoformat(), "origen": "raspberry-pi-3"}
 
     def close(self):
         self.dht.exit()
-        self.bus.close()
+        self.i2c.deinit()
         self.gpio.cleanup(self.rain_pin)
 
 
@@ -59,7 +67,7 @@ def run(args):
         settings = json.loads(saved.read_text(encoding="utf-8"))
         args.read_seconds = int(settings.get("SegundosLecturaEstacion", args.read_seconds))
         args.heartbeat_seconds = int(settings.get("SegundosLatidoEstacion", args.heartbeat_seconds))
-    sensors = Sensors(args.rain_pin, args.dht_pin, args.bh1750_address)
+    sensors = Sensors(args.rain_pin, args.dht_pin, args.ads1115_address, args.ldr_channel)
     client = mqtt.Client(client_id="portus_estacion_pi3")
     client.reconnect_delay_set(min_delay=1, max_delay=30)
     online = False
@@ -110,7 +118,7 @@ def run(args):
             if stamp >= next_read:
                 next_read = stamp + args.read_seconds
                 try:
-                    value = sensors.read(args.max_lux)
+                    value = sensors.read(args.ldr_dark_voltage, args.ldr_bright_voltage)
                     reading_healthy = True
                     if online:
                         client.publish("portus/estacion/lectura", json.dumps(value), qos=1)
@@ -136,12 +144,16 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=1883)
     parser.add_argument("--rain-pin", type=int, default=17)
     parser.add_argument("--dht-pin", type=int, default=4)
-    parser.add_argument("--bh1750-address", type=lambda x: int(x, 0), default=0x23)
-    parser.add_argument("--max-lux", type=float, default=1000.0)
+    parser.add_argument("--ads1115-address", type=lambda x: int(x, 0), default=0x48)
+    parser.add_argument("--ldr-channel", type=int, default=0)
+    parser.add_argument("--ldr-dark-voltage", type=float, default=0.0)
+    parser.add_argument("--ldr-bright-voltage", type=float, default=3.3)
     parser.add_argument("--read-seconds", type=int, default=5)
     parser.add_argument("--heartbeat-seconds", type=int, default=10)
     options = parser.parse_args()
-    if options.max_lux <= 0 or not 2 <= options.read_seconds <= 60 or not 5 <= options.heartbeat_seconds <= 60:
+    if (options.ads1115_address not in range(0x48, 0x4c) or options.ldr_channel not in range(4)
+            or not 0 <= options.ldr_dark_voltage < options.ldr_bright_voltage <= 3.3
+            or not 2 <= options.read_seconds <= 60 or not 5 <= options.heartbeat_seconds <= 60):
         parser.error("Parametros fuera de rango")
     logging.basicConfig(level=logging.INFO)
     run(options)

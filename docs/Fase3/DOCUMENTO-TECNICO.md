@@ -8,7 +8,7 @@ PORTUS conserva el control local de garita, grúa, pesaje, patio y salida en el 
 
 ```mermaid
 flowchart LR
-  S[DHT22 · YL-83 · BH1750] -->|GPIO / I2C| P[Raspberry Pi 3]
+  S[DHT22 · YL-83 · LDR + ADS1115] -->|GPIO / I2C| P[Raspberry Pi 3]
   C[Teléfono en modo cámara web] -->|USB UVC| P
   P -->|MQTT local| B[Broker Mosquitto]
   B <--> W[Servidor · SQLite · web · Telegram]
@@ -21,18 +21,21 @@ flowchart LR
 
 ## 2. Construcción de la estación y conexiones
 
-La estación ambiental prevista agrupa DHT22, salida digital del comparador YL-83 y BH1750. Debe montarse con ventilación para el DHT22, soporte inclinado para evacuar agua del sensor de lluvia y protección de las conexiones. **La carcasa, su fuente y el diagrama eléctrico definitivo están pendientes de seleccionar y documentar con los módulos reales.** La tabla es el diseño lógico que usa el código; la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md) contiene el mapa completo y los puntos de comprobación.
+La estación ambiental prevista agrupa DHT22, salida digital del comparador YL-83 y un LDR leído mediante ADS1115. Debe montarse con ventilación para el DHT22, soporte inclinado para evacuar agua del sensor de lluvia y protección de las conexiones. **La carcasa, su fuente y el diagrama eléctrico definitivo están pendientes de seleccionar y documentar con los módulos reales.** La tabla es el diseño lógico que usa el código; la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md) contiene el mapa completo y los puntos de comprobación.
 
 | Señal | Conexión prevista | Condición eléctrica |
 |---|---|---|
 | DHT22 | Pi BCM GPIO4, pin físico 7 | Verificar alimentación y resistencia de pull-up del módulo. |
 | YL-83 digital | Pi BCM GPIO17, pin físico 11 | Entrada de 3.3 V; el código interpreta LOW como lluvia. |
-| BH1750 | I2C 1: SDA BCM2/pin 3, SCL BCM3/pin 5; dirección `0x23` | Compartir GND y verificar dirección real. |
+| ADS1115 | VDD a 3.3 V; GND a GND; SDA a BCM2/pin 3; SCL a BCM3/pin 5; ADDR a GND para `0x48` | Verificar dirección con `i2cdetect -y 1`; ninguna entrada analógica debe superar VDD. |
+| LDR y resistencia fija | 3.3 V → LDR → nodo A0 del ADS1115 → resistencia fija de 10 kΩ → GND | La luz aumenta el voltaje de A0. Confirmar resistencia y voltajes reales antes de cerrar el montaje. |
 | Iluminación | Mega digital 46 a entrada de MOSFET o relé | La tira usa fuente y etapa de potencia propias; el pin no la alimenta. |
 | Baliza | Mega digital 47 a etapa de manejo adecuada | Verificar corriente y polaridad. |
 | Mega–Pi | USB serial, normalmente `/dev/ttyACM0` | 115200 baudios; sin UART adicional. |
 
-**Diagrama eléctrico final por incorporar:** esquema de alimentación de la Pi y sensores, tensión y tierra común donde corresponda, protección del GPIO17, módulo de potencia de luces y driver de la baliza. Registrar archivo editable, imagen exportada, valores de componentes y mediciones en la [bitácora](BITACORA-Y-EVIDENCIAS.md). No presentar esta tabla como sustituto de ese diagrama.
+La lectura `luz` es un **porcentaje relativo de 0 a 100**, no lux. El código convierte el voltaje de A0 entre `--ldr-dark-voltage` y `--ldr-bright-voltage` (valores iniciales 0.0 y 3.3 V). Deben medirse ambos extremos con el LDR ya montado y ajustar los argumentos; luego comprobar los umbrales 30/45 en la maqueta. Los LDR A8–A11 del patio siguen conectados al Mega y no cambian.
+
+**Diagrama eléctrico final por incorporar:** esquema de alimentación de la Pi y sensores, divisor LDR/ADS1115, tensión y tierra común donde corresponda, protección del GPIO17, módulo de potencia de luces y driver de la baliza. Registrar archivo editable, imagen exportada, valores de componentes y mediciones en la [bitácora](BITACORA-Y-EVIDENCIAS.md). No presentar esta tabla como sustituto de ese diagrama.
 
 ## 3. Cámara, modelos y regiones de interés
 
@@ -69,7 +72,7 @@ El doble factor inicia apagado. Si la cámara falla, los siguientes ingresos req
 
 ## 5. Clima, iluminación y baliza
 
-La estación publica temperatura, humedad, lluvia y luz. Ante lluvia, el servidor ordena `GruaSuspender` por clima: el Mega termina el trabajo actual y no inicia otro; la baliza parpadea sin esperas bloqueantes. Tras un periodo seco configurable, el servidor ordena la reanudación. La iluminación tiene modos Automático, Encendido forzado y Apagado forzado; en automático usa dos umbrales separados para evitar parpadeos. Antes de cada foto se ordena encenderla. Si falla o vence una lectura ambiental, se activa AL16 y la iluminación se enciende. El control del Mega usa `millis()` para iluminación y baliza.
+La estación publica temperatura, humedad, lluvia y luz relativa. Ante lluvia, el servidor ordena `GruaSuspender` por clima: el Mega termina el trabajo actual y no inicia otro; la baliza parpadea sin esperas bloqueantes. Tras un periodo seco configurable, el servidor ordena la reanudación. La iluminación tiene modos Automático, Encendido forzado y Apagado forzado; en automático usa dos umbrales separados para evitar parpadeos. Antes de cada foto se ordena encenderla. Si falla o vence una lectura ambiental, se activa AL16 y la iluminación se enciende. El control del Mega usa `millis()` para iluminación y baliza.
 
 ## 6. Intercambio de mensajes
 
@@ -112,6 +115,6 @@ Los parámetros se validan en el servidor; el umbral de apagado debe superar al 
 
 ## 8. Instalación, límites y entregables pendientes
 
-La instalación y el orden de encendido están en la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md). En la Pi se instalan `PortusFase3/requirements-pi.txt`, Tesseract, Mosquitto y las dependencias de fase 2; se habilita I2C, se comprueba `/dev/video*` y se calibran las ROI. El archivo `yolov8n.pt` no está versionado y debe quedar disponible localmente.
+La instalación y el orden de encendido están en la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md). En la Pi se instalan `PortusFase3/requirements-pi.txt`, Tesseract, Mosquitto y las dependencias de fase 2; se habilita I2C, se comprueba `/dev/video*` y se calibran el divisor LDR y las ROI. El archivo `yolov8n.pt` no está versionado y debe quedar disponible localmente.
 
 Faltan el diagrama eléctrico definitivo, fotos de la estación y cámara montadas, versiones instaladas de los modelos, veinte lecturas de placa, mediciones de cola, pruebas E01–E13 y evidencias 3D. Se registran en la [bitácora](BITACORA-Y-EVIDENCIAS.md) y el [inventario 3D](INVENTARIO-FABRICACION-3D.md). El guion y la presentación se incorporarán cuando estén cerrados para la entrega.
