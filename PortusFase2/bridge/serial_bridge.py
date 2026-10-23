@@ -55,6 +55,8 @@ class SerialMQTTBridge:
         self.protocol = "mock" if use_mock else "fase1"
         self.fase3_active = False
         self.last_fase3_server = 0.0
+        self.fase3_server_instance = None
+        self.pending_gate_reset = False
 
     def start(self):
         self.running = True
@@ -104,6 +106,13 @@ class SerialMQTTBridge:
         """
         if msg.topic == "portus/fase3/latido":
             self.last_fase3_server = time.monotonic()
+            try:
+                instance = json.loads(msg.payload.decode("utf-8")).get("instancia")
+            except (ValueError, UnicodeDecodeError):
+                instance = None
+            if instance and instance != self.fase3_server_instance:
+                self.fase3_server_instance = instance
+                self.pending_gate_reset = True
             return
         if msg.topic == "portus/cmd/solicitud":
             try:
@@ -189,6 +198,9 @@ class SerialMQTTBridge:
             time.sleep(2)
             if self.serial_conn and self.serial_conn.is_open:
                 try:
+                    if self.pending_gate_reset and self.last_fase3_server and time.monotonic() - self.last_fase3_server < 10:
+                        self.send_command_to_controller("GaritaModo", "activo=False")
+                        self.pending_gate_reset = False
                     with self.lock:
                         self.serial_conn.write(b"ESTADO\nPATIO\nGRUA\n")
                         if self.fase3_active and time.monotonic() - self.last_fase3_server < 10:

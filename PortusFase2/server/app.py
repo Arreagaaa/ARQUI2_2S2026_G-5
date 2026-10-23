@@ -61,6 +61,7 @@ msg_service = TransportistaMessagingService()
 
 # Cliente MQTT del servidor
 mqtt_client: mqtt.Client = None
+fase3_instance_id = uuid.uuid4().hex
 
 
 def _fase3_publish(topic, data):
@@ -506,7 +507,13 @@ def _evaluar_pesaje_tol(data):
 def init_mqtt():
     global mqtt_client
     mqtt_client = mqtt.Client(client_id=f"portus_server_{uuid.uuid4().hex[:6]}")
-    mqtt_client.on_connect = lambda c, u, f, rc: c.subscribe("portus/#") if rc == 0 else None
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            client.subscribe("portus/#")
+            # Un reinicio pierde el acceso pendiente en memoria. Cerrar el
+            # modo remoto evita que el Mega espere una decision inexistente.
+            fase3_runtime.command("GaritaModo", activo=False)
+    mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_mqtt_message
     def supervise():
         from .telemetry import alarm_once
@@ -529,7 +536,7 @@ def init_mqtt():
                     from .telemetry import alarm_once
                     alarm_once("AL22")
                     fase3_runtime.pending_since = None
-                _fase3_publish("portus/fase3/latido", {"timestamp": fase3.now()})
+                _fase3_publish("portus/fase3/latido", {"timestamp": fase3.now(), "instancia": fase3_instance_id})
                 stamp = terminal_state.get('ultimo_latido_timestamp')
                 if stamp and terminal_state['enlace']=='CONECTADO':
                     elapsed = (datetime.now(timezone.utc)-datetime.fromisoformat(stamp)).total_seconds()
@@ -2061,19 +2068,21 @@ def fase3_decision_acceso(access_id):
     reason = str(data.get("motivo") or "").strip()
     if choice not in ("CONFIRMAR", "RECHAZAR") or len(reason) < 10:
         return jsonify({"error": "Decision y motivo de al menos 10 caracteres requeridos"}), 400
-    conn = get_db_connection()
-    try:
-        row = conn.execute("SELECT * FROM fase3_accesos WHERE id=?", (access_id,)).fetchone()
-        if not row or row["resultado"] not in ("VERIFICACION MANUAL", "MODO DEGRADADO"):
-            return jsonify({"error": "Verificacion pendiente no encontrada"}), 404
-        conn.execute("UPDATE fase3_accesos SET resultado=?,usuario_decision=?,motivo_decision=? WHERE id=?",
-                     (choice, session["user"]["username"], reason, access_id))
-        conn.commit()
-    finally:
-        conn.close()
-    fase3_runtime.command("GaritaResultado", resultado="AUTORIZAR" if choice == "CONFIRMAR" else "RECHAZAR",
-                          placa=row["placa_leida"] or "")
-    if fase3_runtime.pending_access_id == access_id:
+    with telemetry_lock:
+        if not fase3_runtime.gate_enabled or fase3_runtime.pending_access_id != access_id:
+            return jsonify({"error": "El acceso ya no es el pendiente en la garita"}), 409
+        conn = get_db_connection()
+        try:
+            row = conn.execute("SELECT * FROM fase3_accesos WHERE id=?", (access_id,)).fetchone()
+            if not row or row["resultado"] not in ("VERIFICACION MANUAL", "MODO DEGRADADO"):
+                return jsonify({"error": "Verificacion pendiente no encontrada"}), 404
+            conn.execute("UPDATE fase3_accesos SET resultado=?,usuario_decision=?,motivo_decision=? WHERE id=?",
+                         (choice, session["user"]["username"], reason, access_id))
+            conn.commit()
+        finally:
+            conn.close()
+        fase3_runtime.command("GaritaResultado", resultado="AUTORIZAR" if choice == "CONFIRMAR" else "RECHAZAR",
+                              placa=row["placa_leida"] or "")
         fase3_runtime.pending_access_id = None
         fase3_runtime.pending_since = None
     fase3.audit(session["user"]["username"], "decision_acceso", {"id": access_id, "decision": choice, "motivo": reason})

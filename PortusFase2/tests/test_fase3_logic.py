@@ -39,6 +39,16 @@ class Fase3Logic(unittest.TestCase):
         runtime.last_heartbeat = None
         self.assertTrue(runtime.suspended_since)
 
+    def test_failed_reading_cannot_keep_station_online(self):
+        published = []
+        runtime = fase3.Runtime(lambda topic, data: published.append((topic, data)), lambda *_: None)
+        runtime.ingest("portus/estacion/lectura", {"temperatura": 27, "humedad": 70, "lluvia": False, "luz": 20})
+        self.assertTrue(runtime.station_online)
+        runtime.ingest("portus/estacion/estado", {"estado": "FALLO_LECTURA"})
+        self.assertFalse(runtime.station_online)
+        self.assertEqual(runtime.snapshot()["lloviendo"], None)
+        self.assertTrue(any(data.get("comando") == "IluminacionEncender" for _, data in published))
+
     def test_restricted_plate_has_priority_and_unknown_card_is_denied(self):
         conn = database.get_db_connection()
         try:
@@ -89,6 +99,45 @@ class Fase3Logic(unittest.TestCase):
             app_module.fase3_runtime.gate_enabled = old_gate
             app_module.fase3_runtime.pending_access_id = old_pending
             app_module.fase3_runtime.pending_since = old_since
+
+    def test_old_manual_decision_cannot_answer_current_access(self):
+        from PortusFase2.server import app as app_module
+
+        conn = database.get_db_connection()
+        try:
+            old_id = conn.execute("INSERT INTO fase3_accesos(timestamp,rfid_uid,resultado) VALUES (?,?,?)",
+                                  (fase3.now(), "AABBCCDD", "VERIFICACION MANUAL")).lastrowid
+            current_id = conn.execute("INSERT INTO fase3_accesos(timestamp,rfid_uid,resultado) VALUES (?,?,?)",
+                                      (fase3.now(), "11223344", "MODO DEGRADADO")).lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+        old_gate = app_module.fase3_runtime.gate_enabled
+        old_pending = app_module.fase3_runtime.pending_access_id
+        app_module.fase3_runtime.gate_enabled = True
+        app_module.fase3_runtime.pending_access_id = current_id
+        try:
+            client = app_module.app.test_client()
+            with client.session_transaction() as session:
+                session["user"] = {"username": "operador", "rol": "TERMINAL"}
+            with patch.object(app_module.fase3_runtime, "command") as command:
+                response = client.post(f"/api/fase3/accesos/{old_id}/decision",
+                                       json={"decision": "CONFIRMAR", "motivo": "Revision manual completa"})
+                self.assertEqual(response.status_code, 409)
+                command.assert_not_called()
+                response = client.post(f"/api/fase3/accesos/{current_id}/decision",
+                                       json={"decision": "CONFIRMAR", "motivo": "Revision manual completa"})
+                self.assertEqual(response.status_code, 200)
+                command.assert_called_once_with("GaritaResultado", resultado="AUTORIZAR", placa="")
+            conn = database.get_db_connection()
+            try:
+                self.assertEqual(conn.execute("SELECT resultado FROM fase3_accesos WHERE id=?", (old_id,)).fetchone()[0],
+                                 "VERIFICACION MANUAL")
+            finally:
+                conn.close()
+        finally:
+            app_module.fase3_runtime.gate_enabled = old_gate
+            app_module.fase3_runtime.pending_access_id = old_pending
 
 
 if __name__ == "__main__":
