@@ -8,7 +8,8 @@
 |---|---|---|---|
 | 22-10-2026 | Commit `a09347a`: extensión `F3` del Mega, estación y visión en Pi, reglas web/MQTT, interfaz y mensajería. | Código fuente y documentación del repositorio. | Compilar firmware y probar con hardware. |
 | 22-10-2026 | Adaptación de la estación al GPIO de la Pi y teléfono como cámara USB, según el mensaje de autorización aportado al equipo. | `estacion_pi.py`, `vision_pi.py`, `vision_config.json`. | Confirmar fuente, carcasa, compatibilidad UVC y montaje. |
-| 22-10-2026 | Corrección de decisión manual antigua, lecturas ambientales fallidas o vencidas y reinicio/pérdida del enlace de garita. | Pruebas aisladas: **29 pruebas y 12 escenarios correctos**; `compileall` y `git diff --check` correctos. | Repetir en maqueta; no hay compilación AVR ni mediciones físicas. |
+| 22-10-2026 | Corrección de decisión manual antigua, lecturas ambientales fallidas o vencidas y reinicio/pérdida del enlace de garita. | Código y pruebas aisladas. | Repetir en maqueta; no hay compilación AVR ni mediciones físicas. |
+| 22-10-2026 | Sustitución de BH1750 por LDR y ADS1115 a solicitud del responsable de montaje. | Código, guía de conexión y pruebas aisladas: **32 pruebas y 12 escenarios correctos**; `compileall` y `git diff --check` correctos. | Medir divisor, calibrar voltajes y repetir con hardware real. |
 
 **Incidencias nuevas:** registrar aquí síntoma, pasos para reproducir, causa comprobada, modificación y resultado de repetición. Evitar declarar resuelta una incidencia solo porque cambió el código.
 
@@ -20,7 +21,7 @@
 
 | Elemento | Foto o archivo editable | Componentes, alimentación y medición | Estado |
 |---|---|---|---|
-| Diagrama eléctrico de estación | Pendiente | Fuente, DHT22, YL-83, BH1750, GPIO y GND | Pendiente |
+| Diagrama eléctrico de estación | Pendiente | Fuente, DHT22, YL-83, divisor LDR/ADS1115, GPIO, I2C y GND | Pendiente |
 | Diagrama eléctrico de iluminación y baliza | Pendiente | Fuente, MOSFET/relé, protecciones y polaridad | Pendiente |
 | Estación terminada en carcasa | Pendiente | Ventilación y escurrimiento del sensor de lluvia | Pendiente |
 | Teléfono y soporte fijo | Pendiente | Modelo, modo UVC, `/dev/video*`, distancia y ángulo | Pendiente |
@@ -40,6 +41,7 @@ Guardar los archivos de evidencia bajo `docs/Fase3/evidencias/` cuando existan, 
 | Origen exacto y SHA-256 de `yolov8n.pt` | Pendiente |
 | Latencia OCR por ingreso, promedio y máximo | Pendiente |
 | Latencia de conteo, promedio y máximo | Pendiente |
+| Voltaje A0 con LDR cubierto / iluminado y resistencia fija real | Pendiente |
 
 **Tasa de acierto de placas:** realizar al menos veinte capturas reales con la cámara fija. Por intento registrar UID, placa visible real, lectura OCR, confianza, iluminación, acierto y ruta de la fotografía. Calcular `aciertos / intentos × 100`; conservar también los fallos.
 

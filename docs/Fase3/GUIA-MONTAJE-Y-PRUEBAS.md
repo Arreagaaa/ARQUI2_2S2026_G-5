@@ -18,11 +18,14 @@ Esta guía organiza las conexiones y pruebas para quien arma la maqueta. Describ
 | Mega 2560 | `PIN_F3_BALIZA` | Digital 47 a driver de baliza ámbar | Libre, resistencia o transistor según carga. |
 | Raspberry Pi 3 | DHT22 `--dht-pin 4` | BCM GPIO4, pin físico 7 | Alimentación y pull-up del módulo. |
 | Raspberry Pi 3 | YL-83 `--rain-pin 17` | Salida digital a BCM GPIO17, pin físico 11 | Nivel máximo 3.3 V; LOW significa lluvia. |
-| Raspberry Pi 3 | BH1750 `--bh1750-address 0x23` | I2C 1: SDA BCM2/pin 3, SCL BCM3/pin 5 | GND común y dirección con `i2cdetect -y 1`. |
+| Raspberry Pi 3 | ADS1115 `--ads1115-address 0x48` | VDD 3.3 V, GND, SDA BCM2/pin 3, SCL BCM3/pin 5; ADDR a GND | Verificar dirección con `i2cdetect -y 1`; entrada A0 nunca mayor que VDD. |
+| Raspberry Pi 3 | LDR `--ldr-channel 0` | 3.3 V → LDR → nodo A0 del ADS1115 → resistencia fija 10 kΩ → GND | Medir A0 en oscuridad y luz; mayor voltaje debe significar más luz. |
 | Teléfono–Pi | Cámara web USB | Cable USB de datos al puerto USB-A de la Pi | Debe aparecer como `/dev/video*`, no solo cargar. |
 | Mega–Pi | Serial existente | USB al Mega, normalmente `/dev/ttyACM0`, 115200 | No se usan pines UART 0/1 adicionales. |
 
 BCM y posición física del encabezado son numeraciones distintas. La estación se monta con carcasa ventilada y sensor de lluvia inclinado; la fuente y el aislamiento definitivos se documentan después de seleccionar los módulos.
+
+El divisor LDR con resistencia fija es el mismo tipo de conexión que se usa en los LDR del patio, pero este sensor nuevo se lee en la Pi mediante ADS1115. La [guía oficial de fotoceldas de Adafruit](https://learn.adafruit.com/photocells/circuitpython) describe el divisor con 10 kΩ; la [guía del ADC](https://learn.adafruit.com/raspberry-pi-analog-to-digital-converters/ads1015-slash-ads1115) muestra la conexión I2C a la Pi. Alimentar el ADS1115 a 3.3 V y mantener A0 dentro de esa tensión.
 
 ## 3. Conexiones anteriores que se conservan
 
@@ -41,8 +44,8 @@ BCM y posición física del encabezado son numeraciones distintas. La estación 
 
 1. Abrir `PortusFase1_INO/PortusFase1/PortusFase1.ino` **con todos los `.cpp` y `.h` de su carpeta**. Compilar para Mega 2560, registrar versión de Arduino IDE, librerías y memoria usada; cargar solo tras confirmar pines.
 2. Conservar la instalación existente de `PortusFase2` y Mosquitto. Configurar puerto serial real y ejecutar el puente y servidor según el [manual de fase 2](../Fase2/MANUAL-DESPLIEGUE-Y-PRUEBAS.md). El doble factor queda apagado inicialmente.
-3. En la Pi instalar `pip install -r PortusFase3/requirements-pi.txt`, `tesseract-ocr` y `v4l-utils`. Habilitar I2C con `raspi-config` y verificar el BH1750 con `i2cdetect -y 1`.
-4. Desde la raíz, ejecutar `python PortusFase3/estacion_pi.py --max-lux 1000`. Calibrar `--max-lux` y la polaridad del YL-83 con lecturas reales. La configuración de periodos se guarda en `PortusFase3/station_settings.json`.
+3. En la Pi instalar `pip install -r PortusFase3/requirements-pi.txt`, `tesseract-ocr` y `v4l-utils`. Habilitar I2C con `raspi-config` y verificar el ADS1115 en `0x48` con `i2cdetect -y 1`.
+4. Medir el voltaje de A0 con el LDR cubierto y bien iluminado. Desde la raíz, ejecutar `python PortusFase3/estacion_pi.py --ldr-dark-voltage VOLTAJE_OSCURO --ldr-bright-voltage VOLTAJE_CLARO` usando esos valores en voltios. Los valores iniciales 0.0 y 3.3 V solo dan una escala preliminar. La salida `luz` es porcentaje relativo, **no lux**. Calibrar también la polaridad del YL-83. La configuración de periodos se guarda en `PortusFase3/station_settings.json`.
 5. Activar el modo **Cámara web** en un teléfono compatible. Verificar `ls /dev/video*` y `v4l2-ctl --list-devices`; ajustar `camera_device`, `plate_roi` y `queue_roi` en `PortusFase3/vision_config.json`. Instalar el peso público `yolov8n.pt` y ejecutar `python PortusFase3/vision_pi.py`.
 
 ## 5. Orden de pruebas de banco
@@ -50,7 +53,7 @@ BCM y posición física del encabezado son numeraciones distintas. La estación 
 | Paso | Prueba | Resultado que se debe registrar |
 |---|---|---|
 | A | Fases 1 y 2 con doble factor apagado y pines 46/47 desconectados. | RFID, talanquera, pesaje, grúa, patio, salida y web continúan. |
-| B | Lecturas reales de DHT22, YL-83 y BH1750. | Valores, polaridad de lluvia, frecuencia y reconexión MQTT. |
+| B | Lecturas reales de DHT22, YL-83 y LDR por ADS1115. | Voltajes oscuro/claro, porcentaje 0–100, polaridad de lluvia, frecuencia y reconexión MQTT. |
 | C | Luces y baliza con sus etapas de potencia. | Encendido/apagado, histéresis y parpadeo sin bloquear grúa. |
 | D | Suspensión con lluvia durante un trabajo; secado. | Trabajo termina; no inicia otro; reanuda tras periodo configurado. |
 | E | Cámara USB fija y regiones de interés calibradas. | Foto legible, veinte intentos OCR, conteo con 0–3 vehículos. |
