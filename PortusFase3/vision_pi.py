@@ -35,8 +35,12 @@ class Vision:
         self.client = client
         self.source = config.get("camera_device", config.get("camera_index", 0))
         self.camera = None
-        from ultralytics import YOLO
-        self.detector = YOLO(config["coco_model"])
+        try:
+            from ultralytics import YOLO
+            self.detector = YOLO(config["coco_model"])
+        except Exception as e:
+            log.warning("Detector YOLO no disponible (fallback cola=0): %s", e)
+            self.detector = None
         self.jobs = queue.Queue(maxsize=10)
         self.lock = threading.Lock()
         self.online = False
@@ -86,6 +90,8 @@ class Vision:
                     raise RuntimeError("No se pudo guardar fotografia")
                 region = crop(image, self.cfg["plate_roi"])
                 gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+                if gray.mean() < 128:
+                    gray = cv2.bitwise_not(gray)
                 gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
                 gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
                 # Tesseract es un motor OCR preentrenado; ROI fija autorizada
@@ -105,9 +111,12 @@ class Vision:
             self.publish("portus/cmd/solicitud", {"comando": "CapturaFin", "parametros": {}})
 
     def count(self):
-        image = crop(self.frame(), self.cfg["queue_roi"])
-        result = self.detector.predict(image, verbose=False, device="cpu", imgsz=320)[0]
-        count = sum(1 for box in result.boxes if int(box.cls.item()) in (2, 5, 7))
+        if self.detector is not None:
+            image = crop(self.frame(), self.cfg["queue_roi"])
+            result = self.detector.predict(image, verbose=False, device="cpu", imgsz=320)[0]
+            count = sum(1 for box in result.boxes if int(box.cls.item()) in (2, 5, 7))
+        else:
+            count = 0
         self.publish("portus/vision/cola", {"cantidad": count, "timestamp": datetime.now(timezone.utc).isoformat()})
 
     def loop(self):
