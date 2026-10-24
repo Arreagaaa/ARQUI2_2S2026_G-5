@@ -60,6 +60,16 @@ class Fase3Logic(unittest.TestCase):
         self.assertIsNone(runtime.last_reading["temperatura"])
         self.assertTrue(any(data.get("comando") == "GruaSuspender" for _, data in published))
 
+    def test_rain_notifies_affected_transporters_once(self):
+        runtime = fase3.Runtime(lambda *_: None, lambda *_: None)
+        reading = {"temperatura": None, "humedad": None, "lluvia": True, "luz": 20}
+        with patch.object(fase3, "affected_transporters", return_value=["trans_rapido"]), \
+             patch.object(fase3.notifier, "send") as send:
+            runtime.ingest("portus/estacion/lectura", reading)
+            runtime.ingest("portus/estacion/lectura", reading)
+        send.assert_called_once()
+        self.assertEqual(send.call_args.args[0], "trans_rapido")
+
     def test_restricted_plate_has_priority_and_unknown_card_is_denied(self):
         conn = database.get_db_connection()
         try:
