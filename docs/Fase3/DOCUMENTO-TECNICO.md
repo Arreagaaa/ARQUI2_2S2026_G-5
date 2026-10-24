@@ -17,7 +17,7 @@ flowchart LR
   M --> A[Garita · grúa · luces · baliza]
 ```
 
-`PortusFase3/estacion_pi.py` y `vision_pi.py` son procesos separados. Si no se ejecutan, el modo de doble factor permanece apagado y la garita conserva el flujo local. El puente de hardware real sigue rechazando las órdenes remotas de movimiento anteriores; solamente acepta la extensión `F3` definida para esta fase.
+`PortusFase3/estacion_pi.py` y `vision_pi.py` son procesos separados. En la Raspberry Pi con hardware real, `run_fase2.py` inicia y supervisa automáticamente la estación ambiental; la cámara continúa como proceso independiente. Si no se ejecuta la cámara, el modo de doble factor permanece apagado y la garita conserva el flujo local. El puente de hardware real sigue rechazando las órdenes remotas de movimiento anteriores; solamente acepta la extensión `F3` definida para esta fase.
 
 ## 2. Construcción de la estación y conexiones
 
