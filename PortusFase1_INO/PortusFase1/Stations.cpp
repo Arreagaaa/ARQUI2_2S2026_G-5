@@ -137,6 +137,31 @@ static int8_t pendingPosF3 = -1;
 // 0 = libre, 1 = lo tiene la garita, 2 = lo tiene la salida.
 static uint8_t duenoTalanquera = 0;
 
+void stations_diagnosticarRfid() {
+  if (estadoGarita != GAR_LIBRE) {
+    Serial.println(F("RFID: garita ocupada; espere a que termine el intento."));
+    return;
+  }
+  byte version = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+  Serial.print(F("RFID VersionReg: 0x")); Serial.println(version, HEX);
+  byte respuestaAtqa[2];
+  byte longitudAtqa = sizeof(respuestaAtqa);
+  MFRC522::StatusCode estado = rfid.PICC_WakeupA(respuestaAtqa, &longitudAtqa);
+  Serial.print(F("RFID deteccion: ")); Serial.println(rfid.GetStatusCodeName(estado));
+  if (estado != MFRC522::STATUS_OK) return;
+  if (!rfid.PICC_ReadCardSerial()) {
+    Serial.println(F("RFID UID: fallo al seleccionar la tarjeta."));
+    return;
+  }
+  Serial.print(F("RFID UID:"));
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    Serial.print(rfid.uid.uidByte[i] < 0x10 ? F(" 0") : F(" "));
+    Serial.print(rfid.uid.uidByte[i], HEX);
+  }
+  Serial.println();
+  rfid.PICC_HaltA();
+}
+
 static void garita_update() {
   switch (estadoGarita) {
     case GAR_LIBRE: {
@@ -156,12 +181,18 @@ static void garita_update() {
       // Servo (talanquera/puerta/aguja) y, lo mas grave, la interrupcion
       // externa del paro de emergencia (Safety.cpp) mientras el vehiculo
       // permanecia frente al sensor de la garita -- eso era lo que hacia
-      // "trabarse" todo el sistema al activar el IR (pin 2).
+      // "trabarse" todo el sistema al activar el IR de garita (pin 2).
       // Si en algun momento se detecta ruido real en la lectura SPI por
       // el tick de Timer2, la forma segura de mitigarlo es pausar SOLO
       // esa interrupcion puntual (TIMSK2 &= ~(1 << OCIE2A); ... TIMSK2 |=
       // (1 << OCIE2A);), nunca con noInterrupts() global.
-      bool hayTarjeta = rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial();
+      // PICC_HaltA() deja la tarjeta en HALT tras una lectura. REQA
+      // (PICC_IsNewCardPresent) no la vuelve a detectar si permanece
+      // frente al lector; WUPA permite reintentar con esa misma tarjeta.
+      byte respuestaAtqa[2];
+      byte longitudAtqa = sizeof(respuestaAtqa);
+      bool hayTarjeta = rfid.PICC_WakeupA(respuestaAtqa, &longitudAtqa) == MFRC522::STATUS_OK &&
+                        rfid.PICC_ReadCardSerial();
 
       if (!hayTarjeta) {
         if (millis() - garitaDesdeMs > 4000) {

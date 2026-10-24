@@ -19,6 +19,8 @@ Muestra la lista de comandos disponibles con una breve descripcion de cada uno.
 ```
 Comandos disponibles:
   ESTADO   - resumen de turnos activos
+  GARITA   - muestra si el doble factor de camara esta activo
+  RFID     - diagnostica comunicacion, deteccion y UID de tarjeta
   PATIO    - estado de cada posicion del patio
   GRUA     - estado general de la grua
   REARME   - solicita rearme tras paro de emergencia

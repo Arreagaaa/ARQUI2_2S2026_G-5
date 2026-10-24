@@ -56,6 +56,8 @@ static void enviarLatido() {
 static void imprimirAyuda() {
   Serial.println(F("Comandos disponibles:"));
   Serial.println(F("  ESTADO  - resumen de turnos activos"));
+  Serial.println(F("  GARITA  - estado del doble factor (camara)"));
+  Serial.println(F("  RFID    - diagnostica lector, deteccion y UID"));
   Serial.println(F("  PATIO   - estado de cada posicion del patio"));
   Serial.println(F("  GRUA    - estado general de la grua"));
   Serial.println(F("  REARME  - solicita rearme tras paro de emergencia"));
@@ -81,6 +83,11 @@ static void procesarComando(String cmd) {
       Serial.println(F(">>> PARO DE EMERGENCIA ACTIVO <<<"));
     }
     Serial.print(F("Ultima causa registrada: ")); Serial.println(safety_getUltimaCausa());
+  } else if (cmd == "GARITA") {
+    Serial.print(F("Doble factor de garita: "));
+    Serial.println(fase3_gate_enabled() ? F("ACTIVO (espera verificacion de placa)") : F("DESACTIVADO (no requiere camara)"));
+  } else if (cmd == "RFID") {
+    stations_diagnosticarRfid();
   } else if (cmd == "PATIO") {
     for (uint8_t i = 0; i < YARD_POS_COUNT; i++) {
       Serial.print(F("Posicion ")); Serial.print(i);
