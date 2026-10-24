@@ -13,6 +13,12 @@ static uint8_t gateRetention = 0;
 static String gatePlate = "";
 static String gateLabel = "";
 
+static void escribirIluminacion() {
+  const uint8_t nivelEncendido = RELE_F3_ILUMINACION_ACTIVO_BAJO ? LOW : HIGH;
+  const uint8_t nivelApagado = RELE_F3_ILUMINACION_ACTIVO_BAJO ? HIGH : LOW;
+  digitalWrite(PIN_F3_ILUMINACION, lighting ? nivelEncendido : nivelApagado);
+}
+
 bool fase3_gate_enabled() { return gateEnabled; }
 void fase3_gate_begin() { gateDecision = 0; gateRetention = 0; gatePlate = ""; gateLabel = ""; }
 int fase3_gate_decision() { return gateDecision; }
@@ -22,9 +28,11 @@ String fase3_gate_plate() { return gatePlate; }
 String fase3_gate_label() { return gateLabel; }
 
 void fase3_init() {
+  // Fijar primero el nivel inactivo para evitar un pulso al arrancar.
+  digitalWrite(PIN_F3_ILUMINACION, RELE_F3_ILUMINACION_ACTIVO_BAJO ? HIGH : LOW);
   pinMode(PIN_F3_ILUMINACION, OUTPUT);
   pinMode(PIN_F3_BALIZA, OUTPUT);
-  digitalWrite(PIN_F3_ILUMINACION, LOW);
+  escribirIluminacion();
   digitalWrite(PIN_F3_BALIZA, LOW);
   lastCommand = 0;
 }
@@ -79,7 +87,7 @@ bool fase3_command(const String &command) {
   } else {
     Serial.println(F("@PORTUS Fase3;rechazo=comando_desconocido"));
   }
-  digitalWrite(PIN_F3_ILUMINACION, lighting ? HIGH : LOW);
+  escribirIluminacion();
   return true;
 }
 
@@ -88,7 +96,7 @@ void fase3_update() {
   // bloquear los pasos de la grua, el pesaje y el paro de emergencia.
   if (millis() - lastCommand > 15000UL && !lighting) {
     lighting = true;
-    digitalWrite(PIN_F3_ILUMINACION, HIGH);
+    escribirIluminacion();
     Serial.println(F("@PORTUS Iluminacion;encendida=1;modo=SinEnlace"));
   }
   // Sin servidor no se puede completar una verificacion nueva. El turno

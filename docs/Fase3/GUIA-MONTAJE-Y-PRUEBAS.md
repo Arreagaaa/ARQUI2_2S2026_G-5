@@ -8,7 +8,7 @@ Esta guía organiza las conexiones y pruebas para quien arma la maqueta. Describ
 2. Verificar con multímetro que Mega 46 y 47 estén libres; no mover los cables existentes sin actualizar el mapa.
 3. Registrar modelo, tensión, corriente y polaridad de cada módulo de sensor, relé, MOSFET, baliza y fuente. La Raspberry trabaja a 3.3 V: **no introducir 5 V en sus GPIO**.
 4. Dibujar el circuito final con alimentación, tierras, resistencias y etapas de potencia. Guardar archivo editable e imagen en la bitácora. La tabla siguiente no reemplaza el diagrama eléctrico.
-5. No alimentar la tira LED desde el pin 46. Usar fuente y etapa de potencia; comprobar si HIGH realmente enciende el módulo escogido.
+5. No alimentar la tira LED desde el pin 46. Usar fuente y etapa de potencia. En la maqueta probada, el relé de iluminación se activa con LOW; el firmware lo configura mediante `RELE_F3_ILUMINACION_ACTIVO_BAJO`.
 
 ## 2. Pines y conexiones nuevas
 
@@ -44,7 +44,7 @@ El divisor LDR con resistencia fija es el mismo tipo de conexión que se usa en 
 
 1. Abrir `PortusFase1_INO/PortusFase1/PortusFase1.ino` **con todos los `.cpp` y `.h` de su carpeta**. Compilar para Mega 2560, registrar versión de Arduino IDE, librerías y memoria usada; cargar solo tras confirmar pines.
 2. Conservar la instalación existente de `PortusFase2` y Mosquitto. Configurar puerto serial real y ejecutar el puente y servidor según el [manual de fase 2](../Fase2/MANUAL-DESPLIEGUE-Y-PRUEBAS.md). El doble factor queda apagado inicialmente.
-3. En la Pi instalar `pip install -r PortusFase3/requirements-pi.txt`, `tesseract-ocr` y `v4l-utils`. Habilitar I2C con `raspi-config` y verificar el ADS1115 en `0x48` con `i2cdetect -y 1`.
+3. Para la estación ambiental instalar `pip install --no-cache-dir -r PortusFase3/requirements-station.txt`. Este archivo evita descargar PyTorch y CUDA, que no se usan para el LDR, DHT22 ni lluvia. La visión se prepara por separado con `requirements-pi.txt`, `tesseract-ocr` y `v4l-utils` cuando se vaya a probar la cámara. Habilitar I2C con `raspi-config` y verificar el ADS1115 en `0x48` con `i2cdetect -y 1`.
 4. Medir el voltaje de A0 con el LDR cubierto y bien iluminado. Desde la raíz, ejecutar `python PortusFase3/estacion_pi.py --ldr-dark-voltage VOLTAJE_OSCURO --ldr-bright-voltage VOLTAJE_CLARO` usando esos valores en voltios. Los valores iniciales 0.0 y 3.3 V solo dan una escala preliminar. La salida `luz` es porcentaje relativo, **no lux**. Calibrar también la polaridad del YL-83. La configuración de periodos se guarda en `PortusFase3/station_settings.json`.
 5. Activar el modo **Cámara web** en un teléfono compatible. Verificar `ls /dev/video*` y `v4l2-ctl --list-devices`; ajustar `camera_device`, `plate_roi` y `queue_roi` en `PortusFase3/vision_config.json`. Instalar el peso público `yolov8n.pt` y ejecutar `python PortusFase3/vision_pi.py`.
 
