@@ -227,7 +227,7 @@ export interface Metricas {
 export interface EstadoTerminal {
   fase3?: {
     estacion_operativa: boolean
-    ultima_lectura: { temperatura: number; humedad: number; lluvia: boolean; luz: number; timestamp: string } | null
+    ultima_lectura: { temperatura: number | null; humedad: number | null; lluvia: boolean; luz: number; timestamp: string } | null
     lloviendo: boolean | null
     grua_suspendida_clima: string | null
     modo_iluminacion: string

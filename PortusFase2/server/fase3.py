@@ -221,9 +221,13 @@ class Runtime:
             return
         if topic == "portus/estacion/lectura":
             try:
-                temp, hum, luz = (float(data[k]) for k in ("temperatura", "humedad", "luz"))
+                luz = float(data["luz"])
+                temp = None if data.get("temperatura") is None else float(data["temperatura"])
+                hum = None if data.get("humedad") is None else float(data["humedad"])
                 rain = data["lluvia"]
-                if not (-40 <= temp <= 85 and 0 <= hum <= 100 and 0 <= luz <= 100 and isinstance(rain, bool)):
+                if not ((temp is None or -40 <= temp <= 85) and
+                        (hum is None or 0 <= hum <= 100) and
+                        0 <= luz <= 100 and isinstance(rain, bool)):
                     return
             except (KeyError, ValueError, TypeError):
                 return

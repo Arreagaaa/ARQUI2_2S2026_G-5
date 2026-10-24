@@ -49,6 +49,17 @@ class Fase3Logic(unittest.TestCase):
         self.assertEqual(runtime.snapshot()["lloviendo"], None)
         self.assertTrue(any(data.get("comando") == "IluminacionEncender" for _, data in published))
 
+    def test_rain_still_suspends_crane_when_dht_fails(self):
+        published = []
+        runtime = fase3.Runtime(lambda topic, data: published.append((topic, data)), lambda *_: None)
+        runtime.ingest("portus/estacion/lectura", {
+            "temperatura": None, "humedad": None, "lluvia": True, "luz": 20,
+        })
+        self.assertTrue(runtime.station_online)
+        self.assertTrue(runtime.snapshot()["lloviendo"])
+        self.assertIsNone(runtime.last_reading["temperatura"])
+        self.assertTrue(any(data.get("comando") == "GruaSuspender" for _, data in published))
+
     def test_restricted_plate_has_priority_and_unknown_card_is_denied(self):
         conn = database.get_db_connection()
         try:
