@@ -20,10 +20,12 @@ log = logging.getLogger("portus.estacion")
 
 def light_percentage(voltage, dark_voltage, bright_voltage):
     """Luz relativa 0-100 para LDR hacia 3.3 V y resistencia hacia GND."""
-    if not math.isfinite(voltage) or not 0 <= voltage <= 3.35:
+    # El ADS1115 puede entregar unos milivoltios negativos alrededor de 0 V.
+    if not math.isfinite(voltage) or not -0.02 <= voltage <= 3.35:
         raise RuntimeError("Voltaje LDR fuera de rango; revisar divisor y ADS1115")
     if not 0 <= dark_voltage < bright_voltage <= 3.3:
         raise ValueError("Calibracion LDR invalida")
+    voltage = max(0.0, voltage)
     return round(min(100.0, max(0.0, 100.0 * (voltage - dark_voltage) / (bright_voltage - dark_voltage))), 1)
 
 
