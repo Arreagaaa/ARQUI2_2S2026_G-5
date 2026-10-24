@@ -174,7 +174,10 @@ export default function OperacionPage() {
     <div className="space-y-4">
       <Panel title="Fase 3 · Clima, iluminacion y vision" bodyClassName="p-3 grid gap-3 md:grid-cols-3 text-xs">
         <div>
-          <div className="font-semibold text-ink">Estacion: {estado.fase3?.estacion_operativa ? 'Operativa' : 'Sin lectura'}</div>
+          <div className="font-semibold text-ink">Estacion: {estado.fase3?.estacion_operativa
+            ? estado.fase3.ultima_lectura?.temperatura == null || estado.fase3.ultima_lectura?.humedad == null
+              ? 'Parcial (DHT sin lectura)' : 'Operativa'
+            : 'Sin lectura'}</div>
           <div>Temperatura: {estado.fase3?.ultima_lectura?.temperatura ?? '—'} °C</div>
           <div>Humedad: {estado.fase3?.ultima_lectura?.humedad ?? '—'} %</div>
           <div>Lluvia: {estado.fase3?.lloviendo == null ? 'Desconocida' : estado.fase3.lloviendo ? 'Si' : 'No'}</div>

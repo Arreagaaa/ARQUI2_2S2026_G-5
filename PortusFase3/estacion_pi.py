@@ -45,13 +45,20 @@ class Sensors:
 
     def read(self, dark_voltage, bright_voltage):
         light = light_percentage(self.ldr.voltage, dark_voltage, bright_voltage)
-        temperature = self.dht.temperature
-        humidity = self.dht.humidity
-        if temperature is None or humidity is None:
-            raise RuntimeError("DHT22 no entrego temperatura y humedad")
-        return {"temperatura": round(float(temperature), 1),
-                "humedad": round(float(humidity), 1),
-                "lluvia": self.gpio.input(self.rain_pin) == self.gpio.LOW,
+        rain = self.gpio.input(self.rain_pin) == self.gpio.LOW
+        try:
+            temperature = self.dht.temperature
+            humidity = self.dht.humidity
+            if temperature is None or humidity is None:
+                raise RuntimeError("DHT22 no entrego temperatura y humedad")
+            temperature = round(float(temperature), 1)
+            humidity = round(float(humidity), 1)
+        except (RuntimeError, OSError, ValueError) as exc:
+            log.warning("DHT22 sin lectura; lluvia y luz se publican: %s", exc)
+            temperature = humidity = None
+        return {"temperatura": temperature,
+                "humedad": humidity,
+                "lluvia": rain,
                 "luz": light,
                 "timestamp": datetime.now(timezone.utc).isoformat(), "origen": "raspberry-pi-3"}
 
