@@ -5,6 +5,8 @@
   interfaz grafica en esta fase). Comandos disponibles:
 
     ESTADO      -> resumen general de turnos activos
+    GARITA      -> estado del doble factor de camara
+    RFID        -> diagnostico del lector y UID
     PATIO       -> estado de cada posicion del patio
     GRUA        -> estado de la grua (referenciada / idle / trabajo actual)
     PESAJE      -> ultima lectura registrada

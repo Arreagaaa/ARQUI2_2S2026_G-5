@@ -34,5 +34,6 @@ uint8_t stations_contarTurnosActivos();
 void stations_imprimirEstadoTurno(uint8_t indice);
 
 void stations_imprimirTelemetria();
+void stations_diagnosticarRfid();
 
 #endif
