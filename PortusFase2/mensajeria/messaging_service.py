@@ -141,7 +141,11 @@ class TransportistaMessagingService:
             rain = "lluvia" if reading.get("lluvia") else "sin lluvia"
             crane = (f"suspendida por lluvia desde {info['grua_suspendida_clima']}"
                      if info.get("grua_suspendida_clima") else "operando")
-            return (f"Temperatura: {reading.get('temperatura')} °C. Humedad: {reading.get('humedad')}%. "
+            temperature = (f"{reading['temperatura']} °C" if reading.get("temperatura") is not None
+                           else "sin lectura")
+            humidity = (f"{reading['humedad']}%" if reading.get("humedad") is not None
+                        else "sin lectura")
+            return (f"Temperatura: {temperature}. Humedad: {humidity}. "
                     f"Estado: {rain}. Grua: {crane}. Ultima lectura: {reading.get('timestamp')}.")
         elif cmd == "/miscitas":
             return self._cmd_miscitas(transportista_id)

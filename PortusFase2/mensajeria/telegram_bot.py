@@ -144,6 +144,8 @@ def _loop(msg_service) -> None:
                 texto = (mensaje.get("text") or "").strip()
                 if not chat_id:
                     continue
+                logging.info("Telegram mensaje recibido: update=%s comando=%s", update.get("update_id"),
+                             texto.split()[0] if texto else "(sin texto)")
                 if not texto:
                     _responder(chat_id, "Mensaje no reconocido. Escriba /ayuda para ver la lista de comandos.")
                     continue
@@ -172,7 +174,9 @@ def _procesar(msg_service, chat_id: str, texto: str) -> str:
 def _responder(chat_id: str, texto: str) -> None:
     """Nunca lanza excepciones: el servicio jamas debe quedar sin respuesta."""
     try:
-        if not send_message(chat_id, texto):
+        if send_message(chat_id, texto):
+            logging.info("Telegram respuesta entregada al chat %s", chat_id)
+        else:
             logging.warning("Respuesta no entregada al chat %s", chat_id)
     except Exception:
         logging.exception("Error respondiendo al chat %s", chat_id)
