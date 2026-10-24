@@ -1,0 +1,7 @@
+# Estacion ambiental de Raspberry Pi: DHT22, YL-83 y LDR por ADS1115.
+# No incluye vision, PyTorch ni CUDA.
+paho-mqtt>=2.0,<3
+adafruit-circuitpython-dht>=4,<5
+Adafruit-Blinka>=8,<9
+RPi.GPIO>=0.7,<1
+adafruit-circuitpython-ads1x15>=3.0,<4

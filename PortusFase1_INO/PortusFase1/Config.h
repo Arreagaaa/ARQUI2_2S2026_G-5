@@ -84,6 +84,7 @@
 #define PIN_SEM_TRANSF_V  45
 // Fase 3: libres en Mega 2560; confirmar con multimetro antes de cablear.
 #define PIN_F3_ILUMINACION 46
+#define RELE_F3_ILUMINACION_ACTIVO_BAJO 1  // LED verde del modulo enciende con LOW
 #define PIN_F3_BALIZA 47
 
 // Semaforo de salida eliminado: salida unificada con garita (usa PIN_SEM_GARITA_*)
