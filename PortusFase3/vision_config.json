@@ -1,11 +1,11 @@
 {
-  "camera_device": "/dev/video0",
+  "camera_device": "http://192.168.0.3:8080/video",
   "camera_width": 640,
   "camera_height": 480,
   "mqtt_host": "localhost",
   "mqtt_port": 1883,
   "coco_model": "yolov8n.pt",
-  "plate_roi": [0.5, 0.35, 0.4, 0.3],
+  "plate_roi": [0.10, 0.15, 0.80, 0.70],
   "queue_roi": [0.02, 0.1, 0.45, 0.8],
   "photo_dir": "PortusFase3/fotos",
   "attempts": 3,
