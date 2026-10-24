@@ -5,6 +5,7 @@ Levanta en un solo comando:
   2. Inicializacion y migracion de base de datos SQLite con datos semilla
   3. Puente de comunicacion Serial-MQTT (hardware real o simulador de Arduino Mega)
   4. Servidor web Flask en http://localhost:5000 con soporte de SSE y WebSockets
+  5. Estacion ambiental Fase 3 supervisada automaticamente en Raspberry Pi real
 """
 
 import sys
@@ -15,6 +16,7 @@ import argparse
 import logging
 import threading
 import subprocess
+from pathlib import Path
 
 # Asegurar que el directorio de la solucion este en sys.path
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -92,6 +94,58 @@ asyncio.run(start())
     return proc
 
 
+def start_pi_station(mqtt_port: int):
+    """Supervisa la estacion ambiental al ejecutar el sistema real en una Raspberry Pi."""
+    model_path = Path("/proc/device-tree/model")
+    if not model_path.exists() or "Raspberry Pi" not in model_path.read_text(errors="ignore"):
+        return lambda: None
+
+    dark = os.environ.get("PORTUS_LDR_DARK_VOLTAGE", "0.001")
+    bright = os.environ.get("PORTUS_LDR_BRIGHT_VOLTAGE", "0.252")
+    station_path = os.path.join(BASE_DIR, "PortusFase3", "estacion_pi.py")
+    command = [sys.executable, station_path, "--host", "127.0.0.1",
+               "--port", str(mqtt_port), "--ldr-dark-voltage", dark,
+               "--ldr-bright-voltage", bright]
+    stopped = threading.Event()
+    current = {"process": None}
+    process_lock = threading.Lock()
+
+    def supervise():
+        while not stopped.is_set():
+            try:
+                with process_lock:
+                    if stopped.is_set():
+                        break
+                    process = subprocess.Popen(command, cwd=BASE_DIR)
+                    current["process"] = process
+                logging.info("Estacion Fase 3 iniciada (PID %s; LDR %s-%s V)", process.pid, dark, bright)
+                code = process.wait()
+                if not stopped.is_set():
+                    logging.error("Estacion Fase 3 termino (codigo %s); reintentando en 10 s", code)
+            except OSError as exc:
+                logging.error("No se pudo iniciar la estacion Fase 3: %s", exc)
+            if stopped.wait(10):
+                break
+
+    thread = threading.Thread(target=supervise, name="portus-estacion", daemon=True)
+    thread.start()
+
+    def stop():
+        stopped.set()
+        with process_lock:
+            process = current["process"]
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        thread.join(timeout=5)
+
+    return stop
+
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -138,6 +192,9 @@ def main():
     init_mqtt()
     bridge.start()
 
+    # En la Pi con hardware real, el mismo arranque levanta la estacion ambiental.
+    stop_station = start_pi_station(args.mqtt_port) if not args.mock else lambda: None
+
     # 4. Canal de mensajeria del transportista
     #    Cola de entrega de los 9 avisos, recordatorios de cita y bot de Telegram.
     #    Sin TELEGRAM_BOT_TOKEN el bot queda desactivado y los avisos se registran
@@ -170,6 +227,7 @@ def main():
     except KeyboardInterrupt:
         print("\nDeteniendo servicios de PORTUS Fase 2...")
     finally:
+        stop_station()
         bridge.stop()
         if broker_proc:
             broker_proc.terminate()
