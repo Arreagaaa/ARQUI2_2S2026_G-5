@@ -10,12 +10,15 @@ class EstacionLdr(unittest.TestCase):
         self.assertEqual(light_percentage(1.6, 0.4, 2.8), 50.0)
         self.assertEqual(light_percentage(2.8, 0.4, 2.8), 100.0)
         self.assertEqual(light_percentage(3.0, 0.4, 2.8), 100.0)
+        self.assertEqual(light_percentage(-0.001, 0.001, 0.252), 0.0)
 
     def test_invalid_adc_voltage_fails_instead_of_publishing_false_light(self):
         with self.assertRaises(RuntimeError):
             light_percentage(float("nan"), 0.4, 2.8)
         with self.assertRaises(RuntimeError):
             light_percentage(4.0, 0.4, 2.8)
+        with self.assertRaises(RuntimeError):
+            light_percentage(-0.1, 0.4, 2.8)
 
     def test_calibration_must_increase_with_light(self):
         with self.assertRaises(ValueError):
