@@ -50,6 +50,7 @@
 // pin por si algun dia se cablea fisicamente, pero hoy no aplica).
 static MFRC522 rfid(PIN_RFID_SS, 255);
 static LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+static bool lcdDisponible = false;
 static Servo servoTalanquera, servoAguja;
 
 static Turno turnos[MAX_TURNOS];
@@ -63,6 +64,7 @@ static void semaforo(uint8_t pinR, uint8_t pinA, uint8_t pinV, char color) {
 }
 
 static void lcdMostrar(const String &l1, const String &l2) {
+  if (!lcdDisponible) return;
   lcd.clear();
   lcd.setCursor(0, 0); lcd.print(l1.substring(0, LCD_COLS));
   lcd.setCursor(0, 1); lcd.print(l2.substring(0, LCD_COLS));
@@ -86,8 +88,20 @@ void stations_init() {
   }
 
   Wire.begin();
-  lcd.init();  lcd.backlight();
-  lcdMostrar("PORTUS - Estado", "Esperando...");
+  // La ausencia de LCD no debe detener el control de la maqueta.
+  Wire.setWireTimeout(25000, true);
+  Wire.beginTransmission(LCD_ADDR);
+  byte lcdEstado = Wire.endTransmission();
+  if (lcdEstado == 0) {
+    lcd.init();
+    lcd.backlight();
+    lcdDisponible = true;
+    lcdMostrar("PORTUS - Estado", "Esperando...");
+  } else {
+    Serial.print(F("[LCD] sin respuesta I2C (codigo "));
+    Serial.print(lcdEstado);
+    Serial.println(F("); se continua sin pantalla"));
+  }
 
   servoTalanquera.attach(PIN_SERVO_TALANQUERA);
   servoAguja.attach(PIN_SERVO_AGUJA);
@@ -834,6 +848,7 @@ void stations_imprimirTelemetria() {
   Serial.print(F(";aguja="));
   Serial.print(servoAguja.read() == AGUJA_RAMAL ? F("Ramal") : F("Recta"));
   Serial.print(F(";espera=")); Serial.print(digitalRead(PIN_IR_ESPERA) == LOW ? 1 : 0);
+  Serial.print(F(";ramal=")); Serial.print(digitalRead(PIN_IR_RAMAL) == LOW ? 1 : 0);
   Serial.print(F(";transferencia=")); Serial.print(digitalRead(PIN_IR_TRANSFERENCIA) == LOW ? 1 : 0);
   Serial.print(F(";salida=")); Serial.print((int)estadoSalida);
   Serial.print(F(";pesaje_placa="));
