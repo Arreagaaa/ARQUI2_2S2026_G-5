@@ -1,27 +1,16 @@
-# PORTUS — Inventario de fabricación 3D
+# PORTUS — Inventario 3D de la maqueta
 
-El enunciado de fase 3 pide un inventario **actualizado de toda la maqueta**, fotografías y archivos de fabricación, con al menos 40 % de los componentes constructivos y mecánicos identificables diseñados o adaptados por el grupo y fabricados en 3D. El porcentaje debe calcularse con piezas reales, sin fragmentar artificialmente una pieza para aumentar el conteo. **Todavía no se dispone del recuento ni de las evidencias físicas definitivas.**
+**Estado al 26-10-2026:** el equipo confirmó que la fabricación y el montaje de la maqueta se completaron. Este inventario registra los modelos publicados en Git. El recuento físico completo, las fuentes editables y el cálculo del porcentaje de componentes fabricados en 3D no están versionados, de modo que el repositorio por sí solo no permite auditar el umbral del 40 % del enunciado.
 
-## Inventario por completar
+## Modelos disponibles
 
-| ID | Pieza y función | Fase | Cantidad física | Diseñada/adaptada por el grupo | Archivo editable | Archivo de impresión | Foto instalada | Estado |
-|---|---|---:|---:|---|---|---|---|---|
-| F3-01 | Carcasa ventilada de estación meteorológica | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F3-02 | Soporte inclinado del sensor de lluvia | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F3-03 | Soporte fijo de cámara/teléfono | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F3-04 | Soportes y canaletas de iluminación | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F3-05 | Montaje de baliza sobre la grúa | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F3-06 | Portaplacas de los camiones | 3 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-| F1/F2 | Piezas existentes de fases 1 y 2: desglosar una por diseño real | 1–2 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
+| Archivo | Descripción identificable por el nombre | Formato |
+| --- | --- | --- |
+| [Brazo grua.stl](../../Docs%203D/Brazo%20grua.stl) | Brazo de grúa | STL |
+| [Pivote Grua.stl](../../Docs%203D/Pivote%20Grua.stl) | Pivote de grúa | STL |
+| [Gruaaa definitive.stl](../../Docs%203D/Gruaaa%20definitive.stl) | Conjunto de grúa | STL |
+| [Conteiners_talanquera.stl](../../Docs%203D/Conteiners_talanquera.stl) | Contenedores y talanquera | STL |
+| [cascard.stl](../../Docs%203D/cascard.stl) | Pieza identificada como `cascard` en el archivo fuente | STL |
+| [Grua_Simulacion.png](../../Docs%203D/Grua_Simulacion.png) | Vista de simulación de la grúa | PNG |
 
-Añadir las filas necesarias para las piezas anteriores y nuevas. Para modelos de terceros, registrar autor, enlace de procedencia, licencia y modificaciones propias; conservar el archivo fuente editable además del STL o equivalente. Guardar archivos y fotos en `docs/Fase3/fabricacion-3d/` cuando estén disponibles.
-
-## Cálculo final
-
-| Concepto | Recuento |
-|---|---:|
-| Componentes constructivos y mecánicos identificables de toda la maqueta | Pendiente |
-| Componentes diseñados o adaptados por el grupo y fabricados en 3D | Pendiente |
-| Porcentaje: segundo recuento / primer recuento × 100 | Pendiente |
-
-Responsable del recuento: **pendiente**. Fecha de verificación y fotografías del conjunto: **pendientes**. No declarar alcanzado el 40 % hasta confirmar el inventario físico completo.
+Estos archivos documentan piezas modeladas, pero un STL no demuestra cuántas copias se imprimieron ni qué proporción representan en la maqueta terminada. La confirmación de fabricación corresponde al equipo responsable. Para repetir una auditoría del porcentaje se necesitan el recuento de componentes físicos y las fotografías de cada pieza instalada.

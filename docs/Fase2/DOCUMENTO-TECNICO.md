@@ -1,5 +1,7 @@
 # Documento Tecnico - PORTUS Fase 2
 
+**Estado al 26-10-2026:** fase terminada según confirmación del equipo, incluida la integración con la maqueta. La suite aislada de la plataforma y la lógica de fase 3 pasó 34 pruebas y 12 escenarios; los registros individuales de la validación física no están versionados. Véase la [bitácora de cierre](../Fase3/BITACORA-Y-EVIDENCIAS.md).
+
 Universidad de San Carlos de Guatemala  
 Facultad de Ingenieria  
 Escuela de Ciencias y Sistemas  

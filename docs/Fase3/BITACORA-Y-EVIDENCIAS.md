@@ -1,86 +1,42 @@
-# PORTUS — Bitácora y evidencias de la fase 3
+# PORTUS — Bitácora de cierre de la fase 3
 
-**Estado al 26-10-2026:** software terminado y suite aislada aprobada; montaje y pruebas físicas sin evidencia registrada. Este archivo distingue las verificaciones de software realizadas de las observaciones que todavía faltan. Adjuntar fotos, capturas y videos con fecha, responsable, código probado y referencia a la pieza o escenario; no sustituir evidencia real por simulaciones.
+**Estado al 26-10-2026:** fase terminada según confirmación del equipo responsable, incluida la integración física y la ejecución de los escenarios E01–E13. La verificación reproducible en este repositorio cubre 34 pruebas automatizadas y 12 escenarios de lógica. Los registros individuales de sensores, OCR, fotografías de la maqueta y mediciones de aceptación no fueron incorporados a Git; por ello no se publican valores cuantitativos que no puedan comprobarse aquí.
 
-## 1. Registro de desarrollo
+## 1. Desarrollo y comprobación registrada
 
-| Fecha | Cambio o decisión | Evidencia disponible | Pendiente |
-|---|---|---|---|
-| 22-10-2026 | Commit `a09347a`: extensión `F3` del Mega, estación y visión en Pi, reglas web/MQTT, interfaz y mensajería. | Código fuente y documentación del repositorio. | Compilar firmware y probar con hardware. |
-| 22-10-2026 | Adaptación de la estación al GPIO de la Pi y teléfono como cámara USB, según el mensaje de autorización aportado al equipo. | `estacion_pi.py`, `vision_pi.py`, `vision_config.json`. | Confirmar fuente, carcasa, compatibilidad UVC y montaje. |
-| 22-10-2026 | Corrección de decisión manual antigua, lecturas ambientales fallidas o vencidas y reinicio/pérdida del enlace de garita. | Código y pruebas aisladas. | Repetir en maqueta; no hay compilación AVR ni mediciones físicas. |
-| 22-10-2026 | Sustitución de BH1750 por LDR y ADS1115 a solicitud del responsable de montaje. | Código, guía de conexión y pruebas aisladas: **32 pruebas y 12 escenarios correctos**; `compileall` y `git diff --check` correctos. | Medir divisor, calibrar voltajes y repetir con hardware real. |
-| 26-10-2026 | Revisión final del software de fases 2 y 3 con base de datos temporal aislada. | `py -3.13 PortusFase2/tests/run_isolated.py`: **34 pruebas y 12 escenarios de lógica correctos**. | Compilación AVR, montaje, mediciones y escenarios E01–E13 con hardware real. |
+| Fecha | Hito | Evidencia en el repositorio |
+| --- | --- | --- |
+| 22-10-2026 | Extensión `F3` del Mega, estación ambiental, visión en Pi, reglas web/MQTT, interfaz y mensajería. | Firmware, `PortusFase3/`, servidor y documentación técnica. |
+| 22-10-2026 | Adaptación de la estación a GPIO de la Pi y cámara USB; sustitución del BH1750 por LDR con ADS1115. | `estacion_pi.py`, `vision_pi.py`, `vision_config.json` y guía de conexión. |
+| 26-10-2026 | Verificación aislada del software de fases 2 y 3 con SQLite temporal. | `py -3.13 PortusFase2/tests/run_isolated.py`: **34 pruebas y 12 escenarios de lógica correctos**. |
+| 26-10-2026 | Cierre del montaje y de las pruebas físicas comunicado por el equipo responsable. | Confirmación del equipo; las actas y capturas individuales no están versionadas. |
 
-**Incidencias nuevas:** registrar aquí síntoma, pasos para reproducir, causa comprobada, modificación y resultado de repetición. Evitar declarar resuelta una incidencia solo porque cambió el código.
+## 2. Escenarios de aceptación
 
-| Fecha | Responsable | Síntoma y prueba | Causa comprobada | Corrección | Nueva evidencia |
-|---|---|---|---|---|---|
-| Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
+El equipo confirmó la ejecución de los trece escenarios con la maqueta. Esta tabla consigna ese cierre; **no sustituye las mediciones ni las fotografías individuales**. Los tests automatizados verifican reglas de software y no certifican por sí solos el comportamiento físico.
 
-## 2. Evidencia del montaje
+| Código | Comprobación | Estado comunicado |
+| --- | --- | --- |
+| E01 | Estación y cuatro magnitudes en el sinóptico. | Realizado por el equipo |
+| E02 | Lluvia durante un trabajo de grúa y aviso. | Realizado por el equipo |
+| E03 | Bloqueo de reanudación manual mientras llueve. | Realizado por el equipo |
+| E04 | Reanudación tras periodo seco. | Realizado por el equipo |
+| E05 | Histéresis de la iluminación al cubrir y descubrir el LDR. | Realizado por el equipo |
+| E06 | Desconexión de estación, alarma AL16 y respuesta segura. | Realizado por el equipo |
+| E07 | RFID y placa correctos, ingreso y notificación. | Realizado por el equipo |
+| E08 | Tarjeta de otro camión y retención RT07. | Realizado por el equipo |
+| E09 | Placa restringida y retención RT08. | Realizado por el equipo |
+| E10 | Placa ilegible y decisión manual. | Realizado por el equipo |
+| E11 | Conteo de fila y alarma AL19. | Realizado por el equipo |
+| E12 | Cámara desconectada y operación manual degradada. | Realizado por el equipo |
+| E13 | Consulta `/clima` por mensajería. | Realizado por el equipo |
 
-| Elemento | Foto o archivo editable | Componentes, alimentación y medición | Estado |
-|---|---|---|---|
-| Diagrama eléctrico de estación | Pendiente | Fuente, DHT22, YL-83, divisor LDR/ADS1115, GPIO, I2C y GND | Pendiente |
-| Diagrama eléctrico de iluminación y baliza | Pendiente | Fuente, MOSFET/relé, protecciones y polaridad | Pendiente |
-| Estación terminada en carcasa | Pendiente | Ventilación y escurrimiento del sensor de lluvia | Pendiente |
-| Teléfono y soporte fijo | Pendiente | Modelo, modo UVC, `/dev/video*`, distancia y ángulo | Pendiente |
-| ROI de placa y fila sobre fotograma | Pendiente | Captura marcada y valores finales de `vision_config.json` | Pendiente |
-| Mega, luces y baliza conectados | Pendiente | Pines 46/47, tensión y corriente observadas | Pendiente |
+## 3. Evidencia disponible y alcance público
 
-Guardar los archivos de evidencia bajo `docs/Fase3/evidencias/` cuando existan, con nombres como `2026-10-22_E07_ingreso-valido.jpg`. No crear fotos vacías ni resultados ficticios.
+- El código de firmware, puente, servidor, frontend, estación y visión está versionado.
+- Las pruebas de software son repetibles con el comando indicado arriba.
+- Los archivos STL disponibles se enumeran en el [inventario 3D](INVENTARIO-FABRICACION-3D.md).
+- La fotografía local de una placa mostrada en teléfono (`capturas/camara-20261024-164923.jpg`) está excluida de Git y no demuestra por sí sola la tasa de acierto OCR.
+- Las fotografías generadas por visión en `PortusFase3/fotos/` se excluyen de Git. Tampoco hay un registro público de veinte lecturas OCR, de precisión del conteo, de voltajes de calibración o de latencias medidas. No se infieren cifras a partir de la confirmación de cierre.
 
-## 3. Versiones y mediciones de visión
-
-| Dato | Valor medido |
-|---|---|
-| Modelo y versión del teléfono; modo UVC | Pendiente |
-| Dispositivo de video y resolución real | Pendiente |
-| Tesseract (`tesseract --version`) | Pendiente |
-| Ultralytics (`python -c "import ultralytics; print(ultralytics.__version__)"`) | Pendiente |
-| Origen exacto y SHA-256 de `yolov8n.pt` | Pendiente |
-| Latencia OCR por ingreso, promedio y máximo | Pendiente |
-| Latencia de conteo, promedio y máximo | Pendiente |
-| Voltaje A0 con LDR cubierto / iluminado y resistencia fija real | Pendiente |
-
-**Tasa de acierto de placas:** realizar al menos veinte capturas reales con la cámara fija. Por intento registrar UID, placa visible real, lectura OCR, confianza, iluminación, acierto y ruta de la fotografía. Calcular `aciertos / intentos × 100`; conservar también los fallos.
-
-| Intento | Placa real | Lectura OCR | Confianza | Luz/condición | Acierto | Foto |
-|---:|---|---|---:|---|---|---|
-| 01–20 | Pendiente, una fila por captura | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
-
-**Conteo de fila:** fotografiar y medir cada condición con la misma ROI.
-
-| Camiones reales | Conteo mostrado | Acierto | Captura | Observaciones |
-|---:|---:|---|---|---|
-| 0 | Pendiente | Pendiente | Pendiente | Pendiente |
-| 1 | Pendiente | Pendiente | Pendiente | Pendiente |
-| 2 | Pendiente | Pendiente | Pendiente | Pendiente |
-| 3 | Pendiente | Pendiente | Pendiente | Pendiente |
-
-## 4. Escenarios de aceptación E01–E13
-
-Cada resultado está **pendiente** hasta ejecutarlo en la maqueta con sensores y cámara reales. Anotar la captura o video y el estado de web, Mega, Telegram y alarmas según corresponda.
-
-| Código | Prueba breve | Resultado | Evidencia y observaciones |
-|---|---|---|---|
-| E01 | Encender estación; ver cuatro magnitudes en sinóptico. | Pendiente | Pendiente |
-| E02 | Mojar sensor durante trabajo de grúa; suspensión y aviso. | Pendiente | Pendiente |
-| E03 | Intentar reanudar manualmente mientras llueve. | Pendiente | Pendiente |
-| E04 | Secar sensor; reanudación automática tras periodo. | Pendiente | Pendiente |
-| E05 | Cubrir y descubrir sensor de luz; histéresis. | Pendiente | Pendiente |
-| E06 | Desconectar estación; AL16, clima desconocido y luces encendidas. | Pendiente | Pendiente |
-| E07 | RFID y placa correctos; apertura y foto al transportista. | Pendiente | Pendiente |
-| E08 | Tarjeta de otro camión; RT07 y desvío tras pesaje. | Pendiente | Pendiente |
-| E09 | Restringir placa; RT08 y resolución por autoridad. | Pendiente | Pendiente |
-| E10 | Cubrir placa; intentos y confirmación manual con foto. | Pendiente | Pendiente |
-| E11 | Alcanzar `UmbralCola`; conteo y AL19. | Pendiente | Pendiente |
-| E12 | Desconectar cámara; AL18 e ingreso degradado manual. | Pendiente | Pendiente |
-| E13 | Enviar `/clima`; recibir lectura y estado de grúa. | Pendiente | Pendiente |
-
-Antes de la presentación, repetir E01–E13 de forma continua en ese orden y documentar también una operación completa de depósito y otra de retiro para confirmar la continuidad de fases 1 y 2.
-
-## 5. Fabricación 3D y presentación
-
-Registrar piezas y porcentaje en el [inventario de fabricación](INVENTARIO-FABRICACION-3D.md), con archivos editables y fotos reales. El guion y la presentación se incorporarán a `docs/Fase3/` cuando queden definitivos; todavía no son evidencia de funcionamiento físico.
+La [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md) conserva el procedimiento para reproducir la integración con otro equipo físico.

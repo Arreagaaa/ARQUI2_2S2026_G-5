@@ -1,5 +1,7 @@
 # Arquitectura del Sistema - PORTUS Fase 1
 
+**Estado al 26-10-2026:** fase terminada según confirmación del equipo. Este documento describe la arquitectura del firmware y el recorrido físico de la maqueta.
+
 ## Descripcion General
 
 PORTUS es un sistema de control firmware para una maqueta fisica de una terminal de contenedores. El Arduino Mega 2560 orquesta el flujo completo de operaciones: ingreso de camiones por RFID, pesaje dinamico, desvio o autorizacion por peso, operaciones de grua en la zona de transferencia, y gestion del patio de almacenamiento.

@@ -1,6 +1,6 @@
 # PORTUS — Documento técnico de la fase 3
 
-**Estado al 26-10-2026:** implementación de software terminada y suite aislada aprobada (34 pruebas y 12 escenarios de lógica). La construcción y validación física siguen sin resultados registrados. Este documento describe el código disponible; la [bitácora](BITACORA-Y-EVIDENCIAS.md) separa las pruebas de software de la aceptación en maqueta. Complementa el [documento técnico de fase 2](../Fase2/DOCUMENTO-TECNICO.md), el [mapa de pines anterior](../Fase2/MAPA-PINES-Y-HARDWARE.md) y la [guía de montaje de esta fase](GUIA-MONTAJE-Y-PRUEBAS.md).
+**Estado al 26-10-2026:** fase terminada según confirmación del equipo responsable. El software pasó 34 pruebas automatizadas y 12 escenarios de lógica; el equipo confirmó la integración y las pruebas físicas. La [bitácora](BITACORA-Y-EVIDENCIAS.md) indica qué evidencias y mediciones quedaron versionadas. Complementa el [documento técnico de fase 2](../Fase2/DOCUMENTO-TECNICO.md), el [mapa de pines anterior](../Fase2/MAPA-PINES-Y-HARDWARE.md) y la [guía de montaje de esta fase](GUIA-MONTAJE-Y-PRUEBAS.md).
 
 ## 1. Alcance y arquitectura
 
@@ -21,7 +21,7 @@ flowchart LR
 
 ## 2. Construcción de la estación y conexiones
 
-La estación ambiental prevista agrupa DHT22, salida digital del comparador YL-83 y un LDR leído mediante ADS1115. Debe montarse con ventilación para el DHT22, soporte inclinado para evacuar agua del sensor de lluvia y protección de las conexiones. **La carcasa, su fuente y el diagrama eléctrico definitivo están pendientes de seleccionar y documentar con los módulos reales.** La tabla es el diseño lógico que usa el código; la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md) contiene el mapa completo y los puntos de comprobación.
+La estación ambiental agrupa DHT22, salida digital del comparador YL-83 y un LDR leído mediante ADS1115. El montaje requiere ventilación para el DHT22, soporte inclinado para evacuar agua del sensor de lluvia y protección de las conexiones. La tabla describe el diseño lógico implementado; la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md) contiene el mapa y los puntos de comprobación. El esquema eléctrico final no está versionado en este repositorio.
 
 | Señal | Conexión prevista | Condición eléctrica |
 |---|---|---|
@@ -35,18 +35,18 @@ La estación ambiental prevista agrupa DHT22, salida digital del comparador YL-8
 
 La lectura `luz` es un **porcentaje relativo de 0 a 100**, no lux. El código convierte el voltaje de A0 entre `--ldr-dark-voltage` y `--ldr-bright-voltage` (valores iniciales 0.0 y 3.3 V). Deben medirse ambos extremos con el LDR ya montado y ajustar los argumentos; luego comprobar los umbrales 30/45 en la maqueta. Los LDR A8–A11 del patio siguen conectados al Mega y no cambian.
 
-**Diagrama eléctrico final por incorporar:** esquema de alimentación de la Pi y sensores, divisor LDR/ADS1115, tensión y tierra común donde corresponda, protección del GPIO17, módulo de potencia de luces y driver de la baliza. Registrar archivo editable, imagen exportada, valores de componentes y mediciones en la [bitácora](BITACORA-Y-EVIDENCIAS.md). No presentar esta tabla como sustituto de ese diagrama.
+**Referencia de conexión:** alimentación de la Pi y sensores, divisor LDR/ADS1115, tensión y tierra común donde corresponda, protección del GPIO17, módulo de potencia de luces y driver de la baliza. Esta tabla no sustituye un esquema eléctrico de fabricación; el archivo editable del montaje no está publicado aquí.
 
 ## 3. Cámara, modelos y regiones de interés
 
-La cámara debe quedar fija frente a la garita, con la placa dentro de `plate_roi` y la zona de espera dentro de `queue_roi`. En `PortusFase3/vision_config.json` las regiones son fracciones `[x, y, ancho, alto]` del fotograma. La configuración inicial es **provisional**: captura de 640 × 480, `plate_roi=[0.5,0.35,0.4,0.3]` y `queue_roi=[0.02,0.1,0.45,0.8]`. Se deben ajustar y fotografiar sobre la maqueta real; registrar allí la imagen con ambas regiones marcadas y la posición física del soporte.
+La cámara queda fija frente a la garita, con la placa dentro de `plate_roi` y la zona de espera dentro de `queue_roi`. En `PortusFase3/vision_config.json` las regiones son fracciones `[x, y, ancho, alto]` del fotograma. La configuración versionada usa captura de 640 × 480, `camera_device=0`, `plate_roi=[0.10,0.15,0.80,0.70]` y `queue_roi=[0.02,0.1,0.45,0.8]`. Estos valores se ajustan a la cámara de cada montaje; no hay una captura de ROI marcada publicada en el repositorio.
 
 | Función | Implementación actual | Procedencia y versión |
 |---|---|---|
-| Lectura de placa | Tesseract OCR preentrenado mediante `pytesseract`, sobre ROI fija; escala de grises, ampliación y umbral Otsu. Se dispara por evento `GaritaRFID`. | Motor Tesseract del sistema; versión instalada pendiente de registrar con `tesseract --version`. `pytesseract>=0.3.10,<1`. |
+| Lectura de placa | Tesseract OCR preentrenado mediante `pytesseract`, sobre ROI fija; escala de grises, ampliación y umbral Otsu. Se dispara por evento `GaritaRFID`. | La dependencia declarada es `pytesseract>=0.3.10,<1`; la versión del motor instalada en la maqueta no quedó versionada. |
 | Conteo de vehículos | Ultralytics YOLOv8n preentrenado sobre COCO, clases automóvil, autobús y camión en la ROI de espera. | Peso público `yolov8n.pt`; `ultralytics>=8.2,<9`. Registrar versión instalada, origen y hash del peso usado antes de entregar. |
 
-No hay detector de placas activo: se usa una ROI fija, alternativa contemplada en el enunciado cuando la detección no funciona a escala de maqueta. El conteo corre periódicamente; la lectura de placa tiene prioridad al recibir RFID. Las fotografías se guardan por intento en `PortusFase3/fotos/`. La tasa de acierto sobre al menos veinte capturas reales y la exactitud con 0–3 camiones están **pendientes** y tienen plantilla en la bitácora.
+No hay detector de placas activo: se usa una ROI fija, alternativa contemplada en el enunciado cuando la detección no funciona a escala de maqueta. El conteo corre periódicamente; la lectura de placa tiene prioridad al recibir RFID. Las fotografías se guardan por intento en `PortusFase3/fotos/` y están excluidas de Git. El equipo confirmó las pruebas físicas; las series de veinte capturas y de conteo con 0–3 camiones no están publicadas, por lo que este repositorio no presenta porcentajes de acierto.
 
 ## 4. Verificación de ingreso
 
@@ -113,8 +113,8 @@ El puente traduce las órdenes nuevas a líneas `F3` por USB: `ILUMINACIONENCEND
 
 Los parámetros se validan en el servidor; el umbral de apagado debe superar al de encendido por al menos cinco unidades. Las acciones nuevas se registran en `fase3_auditoria`: cambio de iluminación, decisión manual, cambios del catálogo y restricciones, inicio y fin de suspensión por lluvia. La plataforma añade Accesos, Placas restringidas, parámetros de fase 3 y `/clima` en Telegram. Confirmar cada salida con pruebas físicas antes de declararla operativa.
 
-## 8. Instalación, límites y entregables pendientes
+## 8. Instalación y alcance de la evidencia
 
 La instalación y el orden de encendido están en la [guía de montaje](GUIA-MONTAJE-Y-PRUEBAS.md). En la Pi se instalan `PortusFase3/requirements-pi.txt`, Tesseract, Mosquitto y las dependencias de fase 2; se habilita I2C, se comprueba `/dev/video*` y se calibran el divisor LDR y las ROI. El archivo `yolov8n.pt` no está versionado y debe quedar disponible localmente.
 
-Faltan el diagrama eléctrico definitivo, fotos de la estación y cámara montadas, versiones instaladas de los modelos, veinte lecturas de placa, mediciones de cola, pruebas E01–E13 y evidencias 3D. Se registran en la [bitácora](BITACORA-Y-EVIDENCIAS.md) y el [inventario 3D](INVENTARIO-FABRICACION-3D.md). El guion y la presentación se incorporarán cuando estén cerrados para la entrega.
+El equipo confirmó la finalización del montaje y de las pruebas E01–E13. El repositorio conserva código, documentación, modelos STL y pruebas automatizadas, pero no los registros individuales de medición, la serie OCR ni todas las fotografías del montaje. El alcance público de la evidencia se resume en la [bitácora](BITACORA-Y-EVIDENCIAS.md) y el [inventario 3D](INVENTARIO-FABRICACION-3D.md).

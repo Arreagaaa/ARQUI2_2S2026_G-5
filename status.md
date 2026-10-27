@@ -2,7 +2,7 @@
 
 Fecha: 2026-09-29
 Version: 1.3.0
-Estado: Canal de mensajeria del transportista operativo (Telegram + simulador); pendiente integracion final con maqueta fisica
+Estado al 26-10-2026: fases 1, 2 y 3 terminadas según confirmación del equipo. La verificación automatizada registró 34 pruebas y 12 escenarios de lógica correctos; las mediciones físicas individuales no están versionadas. Las secciones históricas de este archivo describen el estado en la fecha de cada sesión.
 
 ---
 
@@ -307,9 +307,9 @@ En `app.py` se quitaron `render_template`, `template_folder` y `static_folder` (
 - `py -3.13 tests\\validate_scenarios.py -v`: **OK**, cobertura logica de E01 a E15.
 - `pnpm exec playwright test tests/playwright_smoke.spec.js --browser=chromium --reporter=line`: **OK**, login y navegacion real en Chromium para TERMINAL y carga de catalogos NAVIERA.
 
-### 7.9 Estado real pendiente
+### 7.9 Estado registrado en esa sesión
 
-El software queda funcionalmente cerrado a nivel de servidor, API, SPA, mensajeria simulada, permisos, agenda, retenciones, reportes y pruebas automatizadas. Lo pendiente para declarar la Fase 2 completa al 100% es integracion fisica con la maqueta: enlace serial real con Arduino, Mosquitto en la Raspberry Pi, validacion de comandos contra sensores/actuadores reales, demostracion de perdida de comunicacion y conciliacion de inventario fisico.
+En esa sesión el software quedó cerrado a nivel de servidor, API, SPA, mensajería simulada, permisos, agenda, retenciones, reportes y pruebas automatizadas. La integración física se registró como trabajo por realizar en ese momento. El estado actual se resume al inicio de este archivo y en la [bitácora de fase 3](docs/Fase3/BITACORA-Y-EVIDENCIAS.md).
 
 ---
 

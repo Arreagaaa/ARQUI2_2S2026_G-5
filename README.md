@@ -2,7 +2,7 @@
 
 PORTUS es un prototipo académico de una terminal de contenedores. Integra una maqueta controlada por Arduino Mega 2560, una plataforma de operaciones en Raspberry Pi 3 y módulos de monitoreo ambiental y visión artificial. El proyecto se desarrolló para el Laboratorio de Arquitectura de Computadoras y Ensambladores 2 de la Universidad de San Carlos de Guatemala, en tres fases que van del control físico local a la supervisión conectada.
 
-> **Estado del proyecto:** el software de las tres fases está implementado; la suite aislada de la plataforma y la lógica de fase 3 pasó 34 pruebas y 12 escenarios. La integración y validación física completas de las fases 2 y 3 siguen sin evidencia registrada en la [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md). Las fotografías y diagramas corresponden a la maqueta y a los avances documentados, no a una certificación industrial.
+> **Estado del proyecto:** las tres fases están terminadas según confirmación del equipo responsable. La suite aislada de la plataforma y la lógica de fase 3 pasó 34 pruebas y 12 escenarios. La integración física y los escenarios E01–E13 fueron confirmados por el equipo; las mediciones y capturas individuales no están publicadas en este repositorio. La [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md) detalla el alcance de la evidencia disponible.
 
 ![Vista general de la maqueta PORTUS](docs/Fase1/media/image/circuito2.jpeg)
 
@@ -30,7 +30,7 @@ El flujo usa **máquinas de estado**: cada estación avanza al recibir una lectu
 | --- | --- | --- |
 | **1 · Control de la maqueta** | Firmware modular para RFID, garita, pesaje dinámico, aguja desviadora, grúa, patio, semáforos y salida. Modelos de camiones, contenedores, manifiestos y turnos precargados para la demostración. | [Arquitectura](docs/Fase1/ARQUITECTURA.md) · [instalación](docs/Fase1/INSTALACION.md) · [firmware](PortusFase1_INO/PortusFase1/PortusFase1.ino) |
 | **2 · Terminal conectada** | Puente serial–MQTT, API Flask, SQLite, eventos en vivo por SSE, SPA React, permisos por rol, retenciones, alarmas, citas, reportes y mensajería al transportista. Incluye controlador simulado para pruebas sin maqueta. | [Documento técnico](docs/Fase2/DOCUMENTO-TECNICO.md) · [manual de despliegue](docs/Fase2/MANUAL-DESPLIEGUE-Y-PRUEBAS.md) · [código](PortusFase2/) |
-| **3 · Ambiente y visión** | Estación con DHT22, sensor de lluvia y LDR por ADS1115; control de iluminación y suspensión por lluvia; OCR de placas, conteo de vehículos y verificación de ingreso. Incluye modelos 3D y guías para completar el montaje. | [Documento técnico](docs/Fase3/DOCUMENTO-TECNICO.md) · [guía de montaje](docs/Fase3/GUIA-MONTAJE-Y-PRUEBAS.md) · [inventario 3D](docs/Fase3/INVENTARIO-FABRICACION-3D.md) |
+| **3 · Ambiente y visión** | Estación con DHT22, sensor de lluvia y LDR por ADS1115; control de iluminación y suspensión por lluvia; OCR de placas, conteo de vehículos y verificación de ingreso. Incluye modelos 3D y guía del montaje. | [Documento técnico](docs/Fase3/DOCUMENTO-TECNICO.md) · [guía de montaje](docs/Fase3/GUIA-MONTAJE-Y-PRUEBAS.md) · [inventario 3D](docs/Fase3/INVENTARIO-FABRICACION-3D.md) |
 
 ### Fase 1: control cercano al hardware
 
@@ -53,7 +53,7 @@ La retención representa la diferencia entre una lectura física y lo autorizado
 
 ### Fase 3: observación del entorno
 
-La estación de la Pi publica temperatura, humedad, lluvia y luz relativa. El servidor puede pausar nuevos trabajos de grúa durante lluvia y usar histéresis para controlar la iluminación. La cámara USB se plantea para OCR de placas con Tesseract y conteo de vehículos con YOLOv8n. Una coincidencia de placa y RFID puede apoyar el ingreso; lecturas dudosas requieren decisión manual. El modo de doble factor comienza apagado y sus resultados dependen de calibración y pruebas con la maqueta real. La [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md) distingue lo implementado de lo todavía pendiente.
+La estación de la Pi publica temperatura, humedad, lluvia y luz relativa. El servidor puede pausar nuevos trabajos de grúa durante lluvia y usar histéresis para controlar la iluminación. La cámara USB se usa para OCR de placas con Tesseract y conteo de vehículos con YOLOv8n. Una coincidencia de placa y RFID puede apoyar el ingreso; lecturas dudosas requieren decisión manual. El modo de doble factor comienza apagado y se activa tras comprobar el enlace y la cámara. La [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md) documenta las pruebas registradas y el cierre comunicado por el equipo.
 
 ## Probar la plataforma sin hardware
 
@@ -98,4 +98,4 @@ Docs 3D/                      Modelos y vistas de fabricación
 - [Fase 2: diseño técnico](docs/Fase2/DOCUMENTO-TECNICO.md), [hardware](docs/Fase2/MAPA-PINES-Y-HARDWARE.md) y [despliegue y pruebas](docs/Fase2/MANUAL-DESPLIEGUE-Y-PRUEBAS.md).
 - [Fase 3: diseño técnico](docs/Fase3/DOCUMENTO-TECNICO.md), [montaje](docs/Fase3/GUIA-MONTAJE-Y-PRUEBAS.md), [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md) y [piezas 3D](docs/Fase3/INVENTARIO-FABRICACION-3D.md).
 
-Es una maqueta de laboratorio. Los valores de calibración, posiciones, reglas y datos precargados deben ajustarse al hardware y al escenario de prueba. La fase 3 aún requiere las evidencias físicas señaladas en su documentación.
+Es una maqueta de laboratorio. Los valores de calibración, posiciones, reglas y datos precargados deben ajustarse al hardware y al escenario de prueba. Las mediciones físicas específicas de la instalación del equipo no están versionadas.
