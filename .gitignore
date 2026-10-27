@@ -21,9 +21,14 @@ capturas/
 PortusFase3/station_settings.json
 *.pt
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite-journal
+*.db-journal
 
 # ---- Logs y temporales ----
 *.log

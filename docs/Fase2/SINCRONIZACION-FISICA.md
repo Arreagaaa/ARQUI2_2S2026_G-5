@@ -20,7 +20,7 @@ El archivo `PORTUS-sincronizacion-2026-09-26.zip` incluye el código y el
 frontend ya construido. Desde Windows, en la raíz del repositorio:
 
 ```powershell
-scp .\PORTUS-sincronizacion-2026-09-26.zip javier@192.168.0.13:~/
+scp .\PORTUS-sincronizacion-2026-09-26.zip usuario@IP_DE_LA_RASPBERRY:~/
 ```
 
 En la Raspberry, detener el proceso actual con `Ctrl+C` y ejecutar:
