@@ -1,6 +1,6 @@
 # PORTUS — Documento técnico de la fase 3
 
-**Estado:** implementación de software revisada; construcción y validación física pendientes. Este documento describe el código disponible, no certifica resultados de la maqueta. Complementa el [documento técnico de fase 2](../Fase2/DOCUMENTO-TECNICO.md), el [mapa de pines anterior](../Fase2/MAPA-PINES-Y-HARDWARE.md) y la [guía de montaje de esta fase](GUIA-MONTAJE-Y-PRUEBAS.md).
+**Estado al 26-10-2026:** implementación de software terminada y suite aislada aprobada (34 pruebas y 12 escenarios de lógica). La construcción y validación física siguen sin resultados registrados. Este documento describe el código disponible; la [bitácora](BITACORA-Y-EVIDENCIAS.md) separa las pruebas de software de la aceptación en maqueta. Complementa el [documento técnico de fase 2](../Fase2/DOCUMENTO-TECNICO.md), el [mapa de pines anterior](../Fase2/MAPA-PINES-Y-HARDWARE.md) y la [guía de montaje de esta fase](GUIA-MONTAJE-Y-PRUEBAS.md).
 
 ## 1. Alcance y arquitectura
 

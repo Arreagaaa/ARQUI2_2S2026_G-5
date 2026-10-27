@@ -2,7 +2,7 @@
 
 PORTUS es un prototipo académico de una terminal de contenedores. Integra una maqueta controlada por Arduino Mega 2560, una plataforma de operaciones en Raspberry Pi 3 y módulos de monitoreo ambiental y visión artificial. El proyecto se desarrolló para el Laboratorio de Arquitectura de Computadoras y Ensambladores 2 de la Universidad de San Carlos de Guatemala, en tres fases que van del control físico local a la supervisión conectada.
 
-> **Estado del proyecto:** las fases 1 y 2 contienen firmware, servicios, interfaz, documentación y pruebas de software. La fase 3 incorpora código y diseño de integración; su montaje completo y la validación física de cámara, sensores y escenarios siguen pendientes según la [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md). Las fotografías y diagramas corresponden a la maqueta y a los avances documentados, no a una certificación industrial.
+> **Estado del proyecto:** el software de las tres fases está implementado; la suite aislada de la plataforma y la lógica de fase 3 pasó 34 pruebas y 12 escenarios. La integración y validación física completas de las fases 2 y 3 siguen sin evidencia registrada en la [bitácora](docs/Fase3/BITACORA-Y-EVIDENCIAS.md). Las fotografías y diagramas corresponden a la maqueta y a los avances documentados, no a una certificación industrial.
 
 ![Vista general de la maqueta PORTUS](docs/Fase1/media/image/circuito2.jpeg)
 

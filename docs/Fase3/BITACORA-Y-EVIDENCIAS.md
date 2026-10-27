@@ -1,6 +1,6 @@
 # PORTUS — Bitácora y evidencias de la fase 3
 
-**Estado:** pendiente de montaje y pruebas físicas. Este archivo distingue las verificaciones de software realizadas de las observaciones que todavía faltan. Adjuntar fotos, capturas y videos con fecha, responsable, código probado y referencia a la pieza o escenario; no sustituir evidencia real por simulaciones.
+**Estado al 26-10-2026:** software terminado y suite aislada aprobada; montaje y pruebas físicas sin evidencia registrada. Este archivo distingue las verificaciones de software realizadas de las observaciones que todavía faltan. Adjuntar fotos, capturas y videos con fecha, responsable, código probado y referencia a la pieza o escenario; no sustituir evidencia real por simulaciones.
 
 ## 1. Registro de desarrollo
 
@@ -10,6 +10,7 @@
 | 22-10-2026 | Adaptación de la estación al GPIO de la Pi y teléfono como cámara USB, según el mensaje de autorización aportado al equipo. | `estacion_pi.py`, `vision_pi.py`, `vision_config.json`. | Confirmar fuente, carcasa, compatibilidad UVC y montaje. |
 | 22-10-2026 | Corrección de decisión manual antigua, lecturas ambientales fallidas o vencidas y reinicio/pérdida del enlace de garita. | Código y pruebas aisladas. | Repetir en maqueta; no hay compilación AVR ni mediciones físicas. |
 | 22-10-2026 | Sustitución de BH1750 por LDR y ADS1115 a solicitud del responsable de montaje. | Código, guía de conexión y pruebas aisladas: **32 pruebas y 12 escenarios correctos**; `compileall` y `git diff --check` correctos. | Medir divisor, calibrar voltajes y repetir con hardware real. |
+| 26-10-2026 | Revisión final del software de fases 2 y 3 con base de datos temporal aislada. | `py -3.13 PortusFase2/tests/run_isolated.py`: **34 pruebas y 12 escenarios de lógica correctos**. | Compilación AVR, montaje, mediciones y escenarios E01–E13 con hardware real. |
 
 **Incidencias nuevas:** registrar aquí síntoma, pasos para reproducir, causa comprobada, modificación y resultado de repetición. Evitar declarar resuelta una incidencia solo porque cambió el código.
 
